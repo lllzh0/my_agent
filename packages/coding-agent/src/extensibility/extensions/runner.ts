@@ -277,6 +277,7 @@ function createHandlerContext(
 	timeoutBudget?: HandlerTimeoutBudget,
 ): ExtensionContext {
 	const scoped: ExtensionContext = Object.create(ctx);
+	Object.defineProperty(scoped, "signal", { value: handlerSignal, enumerable: true });
 	Object.defineProperty(scoped, "ui", {
 		value: createHandlerUIContext(ctx.ui, handlerSignal, timeoutBudget),
 		enumerable: true,
@@ -507,6 +508,8 @@ export const UNAVAILABLE_ANNOTATIONS: ExtensionAnnotationsAPI = Object.freeze({
 });
 
 export class ExtensionRunner {
+	/** Embedded input routers can consume failures and pause the budget during human dialogs. */
+	inputFailurePolicy: "continue" | "handled" = "continue";
 	#uiContext: ExtensionUIContext;
 	#mode: ExtensionMode = "print";
 	#toolApprovalPreviewWaiter?: (toolCallId: string) => Promise<void>;
@@ -1549,7 +1552,9 @@ export class ExtensionRunner {
 							const handlerContext = createHandlerContext(
 								ctx,
 								handlerSignal,
-								event.type === "tool_call" ? budget : undefined,
+								event.type === "tool_call" || (event.type === "input" && this.inputFailurePolicy === "handled")
+									? budget
+									: undefined,
 							);
 							result = await this.#toolRegistrationScope.run(registrationScope, () =>
 								handler(event, handlerContext),
@@ -1983,9 +1988,14 @@ export class ExtensionRunner {
 		for (const ext of this.extensions) {
 			for (const handler of ext.handlers.get("input") ?? []) {
 				const event: InputEvent = { type: "input", text: currentText, images: currentImages, source };
-				const result = (await this.#runHandlerWithTimeout(handler, event, ctx, ext, extensionHandlerTimeoutMs)) as
-					| InputEventResult
-					| undefined;
+				const result = (await this.#runHandlerWithTimeout(
+					handler,
+					event,
+					ctx,
+					ext,
+					extensionHandlerTimeoutMs,
+					this.inputFailurePolicy === "handled" ? () => ({ handled: true }) : undefined,
+				)) as InputEventResult | undefined;
 				if (result?.handled) return result;
 				if (result?.text !== undefined) currentText = result.text;
 				if (result?.images !== undefined) currentImages = result.images;

@@ -1,0 +1,1 @@
+Read one local file or list a local directory. The path must be a plain filesystem path, without URLs, wildcards, multiple paths, or inline selectors. For a text range, supply the one-based offset and limit separately. Use web_fetch for public URLs and read_document for research source records.

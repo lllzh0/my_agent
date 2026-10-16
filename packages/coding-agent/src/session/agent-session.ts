@@ -10914,9 +10914,9 @@ export class AgentSession implements SettingsScope {
 		return this.#recovery.hasAbortedToolCallTail;
 	}
 
-	/** Retry the last failed assistant turn when the session is idle. */
-	retry(): Promise<boolean> {
-		return this.#recovery.retry();
+	/** Retry the last failed assistant turn when idle; opted-in custom notices survive the retry. */
+	retry(options?: { skipCustomTypes?: readonly string[] }): Promise<boolean> {
+		return this.#recovery.retry(options);
 	}
 
 	/**

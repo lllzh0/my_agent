@@ -150,6 +150,29 @@ function sessionFilesIn(dir: string): string[] {
 }
 
 describe("SessionManager on a session file another omp process writes", () => {
+	it("an embedded exclusive writer refuses replacement without changing its session identity", async () => {
+		using tempDir = TempDir.createSync("@omp-exclusive-session-file-");
+		const original = await createSession(tempDir);
+		const ours = await SessionManager.open(original, tempDir.path(), new FileSessionStorage(), {
+			suppressBreadcrumb: true,
+		});
+		ours.requireExclusiveWriter();
+		const id = ours.getSessionId();
+		fs.renameSync(await createSession(tempDir), original);
+		// Trigger the existing disk-size conflict path as a non-cooperating writer.
+		fs.appendFileSync(original, "\n\n");
+		const before = fs.readFileSync(original, "utf8");
+		try {
+			await expect(ours.rewriteEntries()).rejects.toThrow(/不会自动切换会话身份/);
+			expect(ours.getSessionId()).toBe(id);
+			expect(ours.getSessionFile()).toBe(original);
+			expect(fs.readFileSync(original, "utf8")).toBe(before);
+			expect(sessionFilesIn(tempDir.path())).toEqual([original]);
+		} finally {
+			await ours.close().catch(() => undefined);
+		}
+	});
+
 	it("keeps the file with the process that wrote it first and moves the other to one sibling", async () => {
 		using tempDir = TempDir.createSync("@omp-shared-session-file-");
 		const original = await createSession(tempDir);

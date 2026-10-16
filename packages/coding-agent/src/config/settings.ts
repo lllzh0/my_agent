@@ -161,6 +161,8 @@ export interface SettingsOptions {
 	agentDir?: string;
 	/** Don't persist to disk (for tests) */
 	inMemory?: boolean;
+	/** Skip implicit project settings discovery. Explicit config overlays are still honored. */
+	discoverProjectSettings?: boolean;
 	/** Read config sources without opening storage or writing migrations */
 	readOnly?: boolean;
 	/** Initial runtime overrides, keyed by setting id (legacy ids migrate; values are checked like `override`). */
@@ -666,6 +668,7 @@ export class Settings {
 
 	/** Whether to persist changes */
 	#persist: boolean;
+	#discoverProjectSettings: boolean;
 
 	private constructor(options: SettingsOptions = {}) {
 		this.#cwd = path.normalize(options.cwd ?? getProjectDir());
@@ -675,6 +678,7 @@ export class Settings {
 		if (options.configFiles) configFiles.push(...options.configFiles);
 		this.#configFiles = configFiles.map(file => path.resolve(this.#cwd, expandTilde(file)));
 		this.#persist = !options.inMemory && options.readOnly !== true;
+		this.#discoverProjectSettings = options.discoverProjectSettings !== false;
 		liveSettingsInstances.add(new WeakRef(this));
 		if (options.overrides) this.#overrides = this.#overrideLayer(options.overrides);
 	}
@@ -773,7 +777,13 @@ export class Settings {
 	 * @throws Error when `overrides` names an unknown setting or a value its definition rejects.
 	 */
 	overlay(overrides: Readonly<Record<string, unknown>> = {}): Settings {
-		const child = new Settings({ inMemory: true, cwd: this.#cwd, agentDir: this.#agentDir, overrides });
+		const child = new Settings({
+			inMemory: true,
+			cwd: this.#cwd,
+			agentDir: this.#agentDir,
+			overrides,
+			discoverProjectSettings: this.#discoverProjectSettings,
+		});
 		child.#storage = this.#storage;
 		child.#parent = this;
 		inheritWarnings(child, this);
@@ -1292,6 +1302,7 @@ export class Settings {
 				cwd,
 				agentDir: this.#agentDir,
 				inMemory: !this.#persist,
+				discoverProjectSettings: this.#discoverProjectSettings,
 			});
 			cloned.#storage = this.#storage;
 			cloned.#configPath = this.#configPath;
@@ -2397,6 +2408,15 @@ export class Settings {
 		quarantineInvalid: boolean,
 		options: { rejectNewWarnings?: boolean; cwd?: string } = {},
 	): Promise<ProjectSettingsReadResult> {
+		if (!this.#discoverProjectSettings) {
+			return {
+				settings: {},
+				fileSettings: {},
+				shellPathSource: undefined,
+				sourcePaths: [],
+				warningsSeen: new Set(),
+			};
+		}
 		const cwd = options.cwd ?? this.#cwd;
 		// Resolve once: capability discovery, fs-cache invalidation, and the
 		// warning prefix below must all derive from the same absolute scope so

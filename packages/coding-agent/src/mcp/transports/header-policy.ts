@@ -106,8 +106,9 @@ export async function mcpFetch(
 	init: MCPFetchInit,
 	sources: MCPHeaderSources,
 	originLocked: boolean,
+	sameOriginOnly = false,
 ): Promise<Response> {
-	if (!originLocked) {
+	if (!originLocked && !sameOriginOnly) {
 		return fetch(url, { ...init, headers: mergeMCPHeaders(sources), timeout: false });
 	}
 
@@ -115,6 +116,7 @@ export async function mcpFetch(
 	let currentUrl = url;
 	for (let hop = 0; hop <= MAX_REDIRECT_HOPS; hop++) {
 		const attachConfigured = new URL(currentUrl).origin === configuredOrigin;
+		if (sameOriginOnly && !attachConfigured) throw new Error("MCP redirect crossed the configured origin");
 		const headers = mergeMCPHeaders(attachConfigured ? sources : { generated: sources.generated });
 		const response = await fetch(currentUrl, { ...init, headers, redirect: "manual", timeout: false });
 		if (!REDIRECT_STATUSES[response.status]) return response;

@@ -1007,6 +1007,7 @@ export class SessionManager {
 	 * after {@link close} gave the claim up.
 	 */
 	#sessionClaim: { sessionId: string; release: (() => void) | undefined } | undefined;
+	#allowFileRelocation = true;
 	/**
 	 * The background artifact copy a move or branch to `sessionFile` started (see
 	 * {@link #moveOffSessionFile}, {@link createBranchedSession}). Never rejects.
@@ -1121,6 +1122,13 @@ export class SessionManager {
 		this.#claimSession();
 		const claim = this.#sessionClaim;
 		return claim !== undefined && claim.sessionId === this.#sessionId && claim.release === undefined;
+	}
+
+	/** Embedders with session-id keyed state must keep the journal on its original identity. */
+	requireExclusiveWriter(): void {
+		if (this.#sessionOwnedElsewhere())
+			throw new Error("会话正被另一个进程占用；先退出该会话，再使用 --resume 恢复。");
+		this.#allowFileRelocation = false;
 	}
 
 	/**
@@ -1257,6 +1265,8 @@ export class SessionManager {
 	 * await it. Returns the sibling.
 	 */
 	#moveOffSessionFile(reason: SessionPersistenceNotice["reason"]): string {
+		if (!this.#allowFileRelocation)
+			throw new Error("会话文件已被其他写入替换或占用；已停止保存，请先检查原会话，不会自动切换会话身份。");
 		const from = this.#sessionFile as string;
 		const previousSessionId = this.#sessionId;
 		const timestamp = nowIso();

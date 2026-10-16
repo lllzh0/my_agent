@@ -107,7 +107,14 @@ export class HttpTransport implements MCPTransport {
 	/** Called on 401/403 to attempt token refresh. Returns updated headers or null. */
 	onAuthError?: () => Promise<Record<string, string> | null>;
 
-	constructor(private config: MCPHttpServerConfig | MCPSseServerConfig) {}
+	constructor(private config: MCPHttpServerConfig | MCPSseServerConfig) {
+		if (
+			config.type === "http" &&
+			config.shutdownTimeout !== undefined &&
+			(!Number.isFinite(config.shutdownTimeout) || config.shutdownTimeout < 1)
+		)
+			throw new Error("MCP shutdownTimeout must be a positive finite number");
+	}
 
 	/**
 	 * Fetch the configured endpoint with header precedence and origin policy.
@@ -127,6 +134,7 @@ export class HttpTransport implements MCPTransport {
 			init,
 			{ generated: withVersion, configured },
 			this.config.headerPolicy === "origin-locked",
+			this.config.type === "http" && this.config.redirectPolicy === "same-origin",
 		);
 		this.#activeFetches.add(request);
 		void request.then(
@@ -895,7 +903,9 @@ export class HttpTransport implements MCPTransport {
 		}
 
 		if (this.#sessionId) {
-			const timeout = resolveMCPTimeoutMs(this.config.timeout);
+			const timeout =
+				(this.config.type === "http" ? this.config.shutdownTimeout : undefined) ??
+				resolveMCPTimeoutMs(this.config.timeout);
 			const operation = createMCPTimeout(timeout);
 			try {
 				const response = await this.#fetch(

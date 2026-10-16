@@ -1,7 +1,7 @@
 import type { AgentMessage } from "@oh-my-pi/pi-agent-core";
 import type { CompactionOutcome } from "@oh-my-pi/pi-agent-core/compaction";
 import type { AssistantMessage, ImageContent, Model, Usage, UsageReport } from "@oh-my-pi/pi-ai";
-import type { Component, Container, EditorTheme, KeyId, Loader, TUI } from "@oh-my-pi/pi-tui";
+import type { Component, Container, EditorTheme, KeyId, Loader, SlashCommand, TUI } from "@oh-my-pi/pi-tui";
 import type { TspText } from "@oh-my-pi/pi-wire";
 import type { StatusNotice } from "@oh-my-pi/pi-tui/chrome/status-notice";
 import type { CollabController } from "../collab/controller";
@@ -89,6 +89,12 @@ export interface InteractiveModeInitOptions {
 	clearInitialTerminalHistory?: boolean;
 	/** Opt into hosting when the caller owns outer startup readiness and shutdown. */
 	autoStartCollab?: boolean;
+	/** Embedded hosts may supply bindings without loading native keybinding files. */
+	keybindings?: KeybindingsManager;
+	/** Embedded host's resumable command, or false to suppress the native CLI hint. */
+	resumeCommand?: string | false;
+	/** Visible commands owned by an embedded host. Execution policy remains the host's responsibility. */
+	slashCommandCatalog?: readonly SlashCommand[];
 }
 
 export type InteractiveSelectorDialogOptions = ExtensionUIDialogOptions &

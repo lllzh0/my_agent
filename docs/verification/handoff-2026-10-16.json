@@ -1,0 +1,138 @@
+{
+  "date": "2026-10-16",
+  "timezone": "Asia/Shanghai",
+  "purpose": "Development handoff checkpoint; automated evidence does not constitute user acceptance.",
+  "repository": "https://github.com/lllzh0/my_agent",
+  "branch": "main",
+  "upstreamBase": "7414b7c919b59dd14db354a8f6b9164426237dff",
+  "product": {
+    "package": "@my-agent/workflow-agent",
+    "version": "0.2.0",
+    "phase": 1,
+    "userAccepted": false
+  },
+  "environment": {
+    "bun": "1.3.14",
+    "platform": "darwin",
+    "arch": "arm64"
+  },
+  "checks": [
+    {
+      "name": "product static checks",
+      "command": "bun run --cwd packages/workflow-agent check",
+      "exitCode": 0,
+      "includes": ["oxlint", "oxfmt --check", "tsgo --noEmit"]
+    },
+    {
+      "name": "product tests",
+      "command": "bun test packages/workflow-agent/test",
+      "exitCode": 0,
+      "passed": 92,
+      "skipped": 3,
+      "failed": 0,
+      "files": 13,
+      "assertions": 420,
+      "note": "The three real sandbox tests are opt-in and passed separately below."
+    },
+    {
+      "name": "real macOS sandbox tests",
+      "command": "MY_AGENT_SANDBOX_TEST=1 bun test packages/workflow-agent/test/sandbox.test.ts",
+      "exitCode": 0,
+      "passed": 3,
+      "failed": 0,
+      "assertions": 39,
+      "note": "The outer Codex sandbox initially rejected sandbox_apply. The same suite passed when explicitly run outside that outer sandbox; product sandbox protections remained enabled."
+    },
+    {
+      "name": "coding-agent type checks",
+      "command": "bun run --cwd packages/coding-agent check:types",
+      "exitCode": 0
+    },
+    {
+      "name": "coding-agent compatibility regression",
+      "commandPrefix": "bun test",
+      "testFiles": [
+        "packages/coding-agent/test/interactive-mode-prompt-template-autocomplete.test.ts",
+        "packages/coding-agent/test/agent-session-manual-retry.test.ts",
+        "packages/coding-agent/test/input-controller-input-events.test.ts",
+        "packages/coding-agent/test/input-controller-focused-commands.test.ts",
+        "packages/coding-agent/test/extensions-runner.test.ts",
+        "packages/coding-agent/test/settings-reload-cwd.test.ts",
+        "packages/coding-agent/test/config/settings-reload.test.ts",
+        "packages/coding-agent/test/modes/interactive-mode-live-settings.test.ts",
+        "packages/coding-agent/test/skills.test.ts",
+        "packages/coding-agent/test/session/session-manager-shared-session-file.test.ts",
+        "packages/coding-agent/test/mcp-embedded-controls.test.ts",
+        "packages/coding-agent/test/mcp-http-transport.test.ts",
+        "packages/coding-agent/test/mcp-stdio-transport.test.ts",
+        "packages/coding-agent/test/mcp-header-policy.test.ts",
+        "packages/coding-agent/test/mcp-env-policy.test.ts",
+        "packages/coding-agent/test/mcp-legacy-sse-transport.test.ts"
+      ],
+      "exitCode": 0,
+      "passed": 344,
+      "failed": 0,
+      "assertions": 966
+    },
+    {
+      "name": "provider regression",
+      "commandPrefix": "bun test",
+      "testFiles": [
+        "packages/ai/test/deepseek-reasoning-content.test.ts",
+        "packages/ai/test/openai-completions-progress-chunk.test.ts",
+        "packages/ai/test/stream-timeout-defaults.test.ts",
+        "packages/ai/test/openai-stream-terminal-close.test.ts",
+        "packages/ai/test/opencode-session-header.test.ts"
+      ],
+      "exitCode": 0,
+      "passed": 94,
+      "failed": 0,
+      "assertions": 186
+    },
+    {
+      "name": "ignore rule checks",
+      "method": "git check-ignore --no-index with 19 expected included/excluded paths",
+      "passed": 19,
+      "failed": 0,
+      "includesSourceException": "packages/workflow-agent/src/changes/"
+    },
+    {
+      "name": "staged content review",
+      "method": "git diff --cached --check, changed-path review, file-size review and high-confidence secret-pattern scan",
+      "whitespaceErrors": 0,
+      "unexpectedRuntimeOrCredentialPaths": 0,
+      "secretPatternHits": 0,
+      "note": "Pattern scanning is scoped to changed staged files and is not a guarantee that every possible secret format can be detected."
+    }
+  ],
+  "cleanSourceInstallation": {
+    "method": "Export non-ignored source into a temporary checkout with empty HOME and cache, then run the repository preparation and offline CLI flows.",
+    "completedAt": "2026-10-16T00:22:13.496Z",
+    "steps": [
+      { "name": "source export", "exitCode": 0 },
+      { "name": "source copy", "exitCode": 0 },
+      { "name": "bun run agent:prepare", "exitCode": 0 },
+      { "name": "setup", "exitCode": 0 },
+      { "name": "doctor", "exitCode": 0 },
+      { "name": "diagnose", "exitCode": 0 },
+      { "name": "offline demo print", "exitCode": 0 },
+      { "name": "offline resume", "exitCode": 0 }
+    ],
+    "initialHomeEmpty": true,
+    "initialCacheEmpty": true,
+    "nativeCopiedFromDevelopmentMachine": false,
+    "resumePreservedHistory": true,
+    "removeCheckoutPreservedUserState": true,
+    "realCredentialsUsed": false,
+    "rawLogsCommitted": false,
+    "historicalHelperCommitted": false
+  },
+  "untestedBoundaries": [
+    "Complete real OpenCode Go and Tavily task acceptance",
+    "The reported post-read model stall has no confirmed remote root cause or stable reproduction",
+    "Other operating systems, Intel Macs and terminal variants",
+    "Real service rate limits, network interruption and long-term task quality",
+    "Disk failure and OCR",
+    "Full upstream OMP and Rust test suites"
+  ]
+}

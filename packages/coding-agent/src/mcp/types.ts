@@ -124,6 +124,10 @@ export interface MCPStdioServerConfig extends MCPServerConfigBase {
 export interface MCPHttpServerConfig extends MCPServerConfigBase {
 	type: "http";
 	url: string;
+	/** Reject redirects to a different origin before forwarding request bodies or credentials. */
+	redirectPolicy?: "same-origin";
+	/** Independent positive deadline for best-effort session termination; ignores the global timeout override. */
+	shutdownTimeout?: number;
 	headers?: Record<string, string>;
 	/**
 	 * `origin-locked`: configured headers are literal package data pinned to the

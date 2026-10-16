@@ -542,6 +542,16 @@ export async function terminateStdioProcess(
  * Stdio transport for MCP servers.
  * Spawns a subprocess and communicates via stdin/stdout.
  */
+export interface StdioTransportOptions {
+	/** Embedders may provide only config.env instead of inheriting the host environment. */
+	inheritEnv?: boolean;
+	/** Opt into process-group cleanup on POSIX; the default preserves platform behavior. */
+	detached?: boolean;
+	signal?: AbortSignal;
+	/** Optional diagnostic sink; the transport never writes server stderr to the terminal. */
+	onStderr?: (text: string) => void;
+}
+
 export class StdioTransport implements MCPTransport {
 	#process: Subprocess<"pipe", "pipe", "pipe"> | null = null;
 	#pendingRequests = new Map<
@@ -553,6 +563,7 @@ export class StdioTransport implements MCPTransport {
 	>();
 	#connected = false;
 	#readLoop: Promise<void> | null = null;
+	#closePromise: Promise<void> | null = null;
 	/**
 	 * Set from `resolveStdioSpawnCommand()`'s `detached` flag in `connect()`.
 	 * Gates process-group signaling in `close()` — only a transport that
@@ -566,7 +577,10 @@ export class StdioTransport implements MCPTransport {
 	onNotification?: (method: string, params: unknown) => void;
 	onRequest?: (method: string, params: unknown) => Promise<unknown>;
 
-	constructor(private config: MCPStdioServerConfig) {}
+	constructor(
+		private config: MCPStdioServerConfig,
+		private options: StdioTransportOptions = {},
+	) {}
 
 	get connected(): boolean {
 		return this.#connected;
@@ -576,10 +590,15 @@ export class StdioTransport implements MCPTransport {
 	 * Start the subprocess and begin reading.
 	 */
 	async connect(): Promise<void> {
+		this.options.signal?.throwIfAborted();
+		if (this.#closePromise) {
+			await this.#closePromise;
+			this.#closePromise = null;
+		}
 		if (this.#connected) return;
 
 		const env = {
-			...Bun.env,
+			...(this.options.inheritEnv === false ? {} : Bun.env),
 			...this.config.env,
 		};
 		const cwd = this.config.cwd ?? getProjectDir();
@@ -589,6 +608,8 @@ export class StdioTransport implements MCPTransport {
 			platform: process.platform,
 			hostHasInheritableConsole: hostHasInheritableConsole(),
 		});
+		this.options.signal?.throwIfAborted();
+		const detached = process.platform === "win32" ? false : (this.options.detached ?? spawnCommand.detached);
 
 		// Platform-derived session and console-window handling come from
 		// `resolveStdioSpawnCommand`: Linux/other POSIX detach into their own
@@ -607,10 +628,10 @@ export class StdioTransport implements MCPTransport {
 			stdout: "pipe",
 			stderr: "pipe",
 			windowsHide: spawnCommand.windowsHide,
-			detached: spawnCommand.detached,
+			detached,
 			windowsVerbatimArguments: spawnCommand.windowsVerbatimArguments,
 		});
-		this.#detached = spawnCommand.detached;
+		this.#detached = detached;
 
 		this.#connected = true;
 
@@ -673,8 +694,7 @@ export class StdioTransport implements MCPTransport {
 				// Log stderr but don't treat as error - servers use it for logging
 				const text = decoder.decode(value, { stream: true });
 				if (text.trim()) {
-					// Could expose via onStderr callback if needed
-					// For now, silent - MCP spec says clients MAY capture/ignore
+					this.options.onStderr?.(text);
 				}
 			}
 		} catch {
@@ -913,7 +933,16 @@ export class StdioTransport implements MCPTransport {
 		}
 	}
 
-	async close(): Promise<void> {
+	close(): Promise<void> {
+		if (!this.#closePromise) {
+			const pending = Promise.withResolvers<void>();
+			this.#closePromise = pending.promise;
+			void this.#close().then(pending.resolve, pending.reject);
+		}
+		return this.#closePromise;
+	}
+
+	async #close(): Promise<void> {
 		// `close()` is the authoritative resource teardown. `#handleClose()`
 		// may have already run (read-loop EOF, or a notify() write failure
 		// that surfaces the dead transport to the caller) and flipped
@@ -959,8 +988,11 @@ export class StdioTransport implements MCPTransport {
 /**
  * Create and connect a stdio transport.
  */
-export async function createStdioTransport(config: MCPStdioServerConfig): Promise<StdioTransport> {
-	const transport = new StdioTransport(config);
+export async function createStdioTransport(
+	config: MCPStdioServerConfig,
+	options?: StdioTransportOptions,
+): Promise<StdioTransport> {
+	const transport = new StdioTransport(config, options);
 	try {
 		await transport.connect();
 		return transport;

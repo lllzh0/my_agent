@@ -634,6 +634,8 @@ export type ExtensionAnnotationsFactory = (
 ) => ExtensionAnnotationsAPI;
 
 export interface ExtensionContext {
+	/** Lifetime of the current event handler; aborts if the handler times out or is cancelled. */
+	readonly signal?: AbortSignal;
 	/** UI methods for user interaction */
 	ui: ExtensionUIContext;
 	/** Current run mode. Use `"tui"` to guard terminal-only UI such as custom components. */

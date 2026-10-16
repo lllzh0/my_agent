@@ -1,0 +1,245 @@
+import type { ExtensionAPI, ExtensionContext, InputEventResult } from "@oh-my-pi/pi-coding-agent/sdk";
+import type { AgentSession } from "@oh-my-pi/pi-coding-agent/session/agent-session";
+import { replaceTabs, type SlashCommand } from "@oh-my-pi/pi-tui";
+import { prompt } from "@oh-my-pi/pi-utils";
+import type { RunState } from "../runtime/state";
+import type { Change } from "../changes/journal";
+import { latestFileTurn, restoreFileChanges } from "../changes/undo";
+import { redact } from "../storage";
+import undoneMessage from "../prompts/files-undone.md" with { type: "text" };
+import { mcpMenu } from "./mcp-menu";
+
+const commands: SlashCommand[] = [
+	{ name: "help", description: "显示当前产品支持的命令" },
+	{ name: "agent", description: "打开产品主菜单" },
+	{ name: "context", description: "查看上下文用量和已加载资源" },
+	{ name: "effort", description: "查看或设置本会话思考强度", argumentHint: "[强度]", allowArgs: true },
+	{ name: "retry", aliases: ["redo"], description: "重试上一轮失败或中断的回答" },
+	{ name: "undo", description: "撤销最近一轮未恢复的文件工具修改，保留聊天" },
+	{ name: "fresh", description: "重建模型连接状态，保留本地聊天" },
+	{ name: "usage", description: "查看本会话本地 token 和费用统计" },
+	{ name: "tools", description: "查看实际工具与资源清单" },
+	{
+		name: "jobs",
+		description: "查看后台任务、输出或停止任务",
+		argumentHint: "[output <id> [cursor]|stop <id>]",
+		allowArgs: true,
+	},
+	{ name: "todo", description: "查看产品任务进度" },
+	{ name: "mcp", description: "管理产品受控 MCP 连接" },
+	{ name: "plan", aliases: ["agent-plan"], description: "切换产品只读计划与执行模式" },
+	{ name: "compact", description: "压缩当前上下文", argumentHint: "[soft] [关注内容]", allowArgs: true },
+	{ name: "session", description: "查看当前会话信息", argumentHint: "[info]", allowArgs: true },
+	{ name: "hotkeys", description: "查看快捷键" },
+	{ name: "quit", aliases: ["q"], description: "退出并保存会话" },
+];
+
+export function productCommandCatalog(state: Pick<RunState, "resources">): SlashCommand[] {
+	return [
+		...commands,
+		...state.resources.skills.map(skill => ({
+			name: `skill:${skill.name}`,
+			description: skill.description,
+			allowArgs: true,
+		})),
+	];
+}
+
+export async function showProductData(ctx: ExtensionContext, title: string, data: unknown): Promise<void> {
+	await ctx.ui.editor(title, replaceTabs(typeof data === "string" ? data : JSON.stringify(redact(data), null, 2)));
+}
+
+export function toggleProductPlan(state: RunState, ctx: ExtensionContext): void {
+	state.policy.mode = state.policy.mode === "plan" ? "execute" : "plan";
+	state.policy.clearGrants();
+	ctx.ui.setStatus(
+		"my-agent",
+		`My Agent · ${state.light ? "轻量 · " : ""}${state.policy.mode === "plan" ? "计划" : "执行"}`,
+	);
+	ctx.ui.notify(
+		state.policy.mode === "plan" ? "计划模式：禁止写入和命令执行。" : "执行模式：副作用仍需批准。",
+		"info",
+	);
+}
+
+/** Used by /undo and the existing per-change restore menu. */
+export async function restoreFromCommand(
+	state: RunState,
+	ctx: ExtensionContext,
+	api: ExtensionAPI,
+	changes: Change[],
+	ensureIdle: () => void,
+): Promise<void> {
+	if (!changes.length) {
+		ctx.ui.notify("没有尚未恢复的文件工具修改。", "info");
+		return;
+	}
+	try {
+		ensureIdle();
+		if (ctx.hasUI)
+			await showProductData(ctx, "恢复预览（关闭后选择是否批准）", {
+				files: [...new Set(changes.map(change => change.path))],
+				diffs: changes.map(change => state.journal.diff(change.id)),
+				note: "只恢复列出的直接文本修改；聊天保留。命令、Git、MCP 和外部服务不在范围内。",
+			});
+		await restoreFileChanges(state, changes, ensureIdle);
+		ctx.ui.notify(`已恢复 ${new Set(changes.map(change => change.path)).size} 个文件；聊天记录保留。`, "info");
+	} catch (error) {
+		ctx.ui.notify(replaceTabs(error instanceof Error ? error.message : String(error)), "error");
+	} finally {
+		// A disk error during a batch may leave a subset restored. Tell the model
+		// about exactly those files even if the command did not finish completely.
+		const ids = new Set(changes.map(change => change.id));
+		const restored = state.journal.list().filter(change => ids.has(change.id) && change.restored);
+		if (restored.length)
+			api.sendMessage({
+				customType: "file-undo",
+				content: prompt.render(undoneMessage, {
+					files: JSON.stringify([...new Set(restored.map(change => change.path))]),
+				}),
+				display: true,
+			});
+	}
+}
+
+export async function handleProductCommand(
+	text: string,
+	state: RunState,
+	ctx: ExtensionContext,
+	api: ExtensionAPI,
+	getSession: () => AgentSession | undefined,
+): Promise<InputEventResult | undefined> {
+	const match = /^\/([^\s]+)(?:\s+([\s\S]*))?$/.exec(text.trim());
+	if (!match) return;
+	const [, name, rawArgs = ""] = match;
+	const args = rawArgs.trim();
+	if (state.resources.skills.some(skill => name === `skill:${skill.name}`)) return;
+	const command = commands.find(command => command.name === name || command.aliases?.includes(name));
+	if (!command) {
+		ctx.ui.notify("此命令尚未接入产品入口；使用 /help 查看支持的命令。", "info");
+		return { handled: true };
+	}
+	const usage = () => {
+		ctx.ui.notify(`用法：/${command.name}${command.argumentHint ? ` ${command.argumentHint}` : ""}`, "info");
+		return { handled: true };
+	};
+	if (args && !command.allowArgs) return usage();
+	if (command.name === "agent") return;
+	if (["quit", "hotkeys"].includes(command.name)) return;
+	if (command.name === "compact") {
+		if (/^(?:remote|snapcompact)(?:\s|$)/i.test(args)) return usage();
+		// Explicitly use OMP's summarization path rather than remote/bitmap modes.
+		return { text: `/compact ${/^soft(?:\s|$)/i.test(args) ? args : `soft ${args}`}`.trim() };
+	}
+	const session = getSession();
+	if (!session) {
+		ctx.ui.notify("会话尚未初始化。", "error");
+		return { handled: true };
+	}
+	const ensureIdle = () => {
+		ctx.signal?.throwIfAborted();
+		if (!ctx.isIdle() || ctx.hasPendingMessages() || session.hasPostPromptWork || session.isCompacting)
+			throw new Error("会话仍在运行或有排队消息；先按 Esc 停止并等待完成。");
+	};
+	try {
+		switch (command.name) {
+			case "help":
+				await showProductData(
+					ctx,
+					"命令帮助",
+					productCommandCatalog(state)
+						.map(
+							command =>
+								`/${command.name}${command.aliases?.length ? `（${command.aliases.map(alias => `/${alias}`).join("、")}）` : ""}${command.argumentHint ? ` ${command.argumentHint}` : ""} — ${command.description}`,
+						)
+						.join("\n"),
+				);
+				break;
+			case "context":
+				await showProductData(ctx, "上下文", {
+					usage: session.getContextUsage() ?? null,
+					resources: state.resources.entries,
+					note: "用量为本地估计，服务端统计可能不同。",
+				});
+				break;
+			case "usage":
+				await showProductData(ctx, "本地用量", {
+					...session.getSessionStats(),
+					note: "仅当前会话累计；按模型返回用量及目录价格估算，不代表订阅剩余额度或账单。",
+				});
+				break;
+			case "session":
+				if (args && args !== "info") return usage();
+				await showProductData(ctx, "会话信息", {
+					...session.getSessionStats(),
+					cwd: state.cwd,
+					mode: state.policy.mode,
+				});
+				break;
+			case "effort": {
+				const available = session.getAvailableEffortSelectors();
+				if (!args) {
+					await showProductData(ctx, "思考强度", { current: session.configuredThinkingLevel(), available });
+					break;
+				}
+				const selected = available.find(value => value === args);
+				if (!selected) {
+					ctx.ui.notify(`用法：/effort [${available.join("|") || "当前模型没有可选强度"}]`, "info");
+					break;
+				}
+				ensureIdle();
+				session.setThinkingLevel(selected, false);
+				ctx.ui.notify(`本会话思考强度：${session.configuredThinkingLevel()}`, "info");
+				break;
+			}
+			case "retry":
+				ensureIdle();
+				if (!(await session.retry({ skipCustomTypes: ["file-undo"] })))
+					ctx.ui.notify("没有可重试的失败或中断回答。", "info");
+				break;
+			case "fresh":
+				ensureIdle();
+				session.freshSession();
+				ctx.ui.notify("模型连接状态已重建，本地聊天保留；不会自动发送请求。", "info");
+				break;
+			case "undo":
+				await restoreFromCommand(state, ctx, api, latestFileTurn(state), ensureIdle);
+				break;
+			case "tools":
+				await showProductData(ctx, "工具与资源", {
+					tools: api.getActiveTools(),
+					resources: state.resources.entries,
+					light: state.light,
+				});
+				break;
+			case "jobs": {
+				const parts = args.split(/\s+/);
+				if (!args) await showProductData(ctx, "后台任务", state.jobs.list());
+				else if (
+					parts[0] === "output" &&
+					parts[1] &&
+					parts.length <= 3 &&
+					(parts[2] === undefined || /^\d+$/.test(parts[2]))
+				)
+					await showProductData(ctx, "后台输出", state.jobs.output(parts[1], Number(parts[2] ?? 0)));
+				else if (parts[0] === "stop" && parts[1] && parts.length === 2) {
+					await state.jobs.stop(parts[1]);
+					ctx.ui.notify("后台任务已停止。", "info");
+				} else return usage();
+				break;
+			}
+			case "todo":
+				await showProductData(ctx, "任务进度", state.workflow.tasks);
+				break;
+			case "mcp":
+				await mcpMenu(state, ctx.ui, ctx.signal);
+				break;
+			case "plan":
+				toggleProductPlan(state, ctx);
+				break;
+		}
+	} catch (error) {
+		ctx.ui.notify(replaceTabs(error instanceof Error ? error.message : String(error)), "error");
+	}
+	return { handled: true };
+}

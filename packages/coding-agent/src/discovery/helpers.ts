@@ -423,6 +423,8 @@ export interface ScanSkillsFromDirOptions {
 	 * semantic every non-Claude provider relies on.
 	 */
 	includeSelf?: boolean;
+	/** Set false to load only dir/SKILL.md, without scanning child skills. Defaults to true. */
+	includeChildren?: boolean;
 	/**
 	 * Registry/CLI origin of the plugin root supplying these skills, forwarded
 	 * to {@link SourceMeta.origin} so user-scope gating can tell omp's own
@@ -505,7 +507,7 @@ export async function scanSkillsFromDir(
 			work.push(loadSkill(selfSkillPath));
 		}
 	}
-	for (const entry of entries) {
+	for (const entry of options.includeChildren === false ? [] : entries) {
 		if (entry.name.startsWith(".")) continue;
 		if (!entry.isDirectory() && !entry.isSymbolicLink()) continue;
 		const skillPath = path.join(dir, entry.name, "SKILL.md");

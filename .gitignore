@@ -17,7 +17,24 @@ target/
 
 # Environment
 .env
+.env.*
+!.env.example
+!.env.sample
+!.env.template
 .venv
+
+# My Agent local state and verification output (source/tests stay tracked)
+.my-agent/
+.my-agent-omp/
+.my-agent-omp-*/
+.cache/
+/artifacts/
+/validation/results/
+
+# Root-level live-model probe files; keep locally, not in the product package
+/probe.txt
+/add.ts
+/add.test.ts
 
 # Editors
 .vscode/
@@ -53,6 +70,7 @@ packages/ai/test/.temp-images/
 .worktree/
 compaction-results/
 changes/
+!packages/workflow-agent/src/changes/
 __pycache__/
 
 # Scratch files

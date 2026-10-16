@@ -3144,30 +3144,48 @@ export class TurnRecovery {
 	 *
 	 * @returns true if retry was initiated, false if no failed turn to retry or agent is busy
 	 */
-	async retry(): Promise<boolean> {
+	async retry(options?: { skipCustomTypes?: readonly string[] }): Promise<boolean> {
 		if (this.#host.isStreaming() || this.#host.isCompacting() || this.isRetrying) return false;
 
 		const messages = this.#host.agent.state.messages;
-		const activeTurnEnd = retryableAssistantTurnEnd(messages);
+		const beforeNotices = (items: readonly AgentMessage[]): number => {
+			let end = items.length;
+			while (end > 0) {
+				const item = items[end - 1];
+				if (item.role !== "custom" || !options?.skipCustomTypes?.includes(item.customType)) break;
+				end--;
+			}
+			return end;
+		};
+		const end = beforeNotices(messages);
+		const inspected = messages.slice(0, end);
+		const notices = messages.slice(end);
+		const activeTurnEnd = retryableAssistantTurnEnd(inspected);
 		if (activeTurnEnd !== undefined) {
-			const replayStart = toolReplayStart(messages);
+			// Context-changing notices must remain on the persisted branch, including
+			// on immediate cancellation. Keep paired failed results and ask the model
+			// to continue with the new context instead of replaying stale tool calls.
+			const replayStart = notices.length ? undefined : toolReplayStart(inspected);
 			if (replayStart !== undefined) {
-				await this.#stripForToolReplay(messages, replayStart);
+				await this.#stripForToolReplay(inspected, replayStart);
 			} else {
 				// Remove the failed/aborted assistant message plus its synthetic tool
 				// results (same as auto-retry does before re-attempting).
-				this.#host.agent.replaceMessages(messages.slice(0, activeTurnEnd - 1));
+				this.#host.agent.replaceMessages([...messages.slice(0, activeTurnEnd - 1), ...notices]);
 			}
 		} else {
 			// A restored session already dropped the failed assistant turn (and its
 			// paired synthetic tool results) from provider context, so the persisted
 			// display transcript is the source of truth for a retryable failed tail.
 			const transcriptMessages = this.#host.sessionManager.buildSessionContext({ transcript: true }).messages;
-			if (retryableAssistantTurnEnd(transcriptMessages) === undefined) return false;
+			if (retryableAssistantTurnEnd(transcriptMessages.slice(0, beforeNotices(transcriptMessages))) === undefined)
+				return false;
 			// The boundary is already gone from active context; when the intact
 			// failed batch is still the tail, replay the tools directly.
-			const replayStart = toolReplayStart(messages);
-			if (replayStart !== undefined) await this.#stripForToolReplay(messages, replayStart);
+			const replayStart = notices.length ? undefined : toolReplayStart(inspected);
+			if (replayStart !== undefined) {
+				await this.#stripForToolReplay(inspected, replayStart);
+			}
 		}
 
 		// Reset retry budget for a fresh attempt

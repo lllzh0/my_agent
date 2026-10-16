@@ -72,6 +72,7 @@ import type { CollabGuestLink } from "../collab/guest";
 import { CollabController } from "../collab/controller";
 import type { CollabHost } from "../collab/host";
 import { KeybindingsManager } from "@oh-my-pi/pi-tui/app-keybindings";
+import { setKeybindings } from "@oh-my-pi/pi-tui/keybindings";
 import { appKey, editorKey, rawKeyHint } from "@oh-my-pi/pi-tui/chrome/keybinding-hints";
 import { formatModelString, type ResolvedModelRoleValue } from "../config/model-resolver";
 import { isSettingsInitialized, Settings, settings } from "../config/settings";
@@ -1515,6 +1516,8 @@ export class InteractiveMode implements InteractiveModeContext {
 	#cleanupUnsubscribe?: () => void;
 	#signalTeardown?: SessionTeardown;
 	readonly #version: string;
+	#resumeCommand: string | false | undefined;
+	#slashCommandCatalog: readonly SlashCommand[] | undefined;
 	readonly #startupChangelog: StartupChangelogSelection | undefined;
 	/** Header components below the config warnings + welcome, retained so a live config-warning change can rebuild the header (#10048). */
 	#headerAfter: readonly Component[] = [];
@@ -2065,6 +2068,8 @@ export class InteractiveMode implements InteractiveModeContext {
 
 	async init(options: InteractiveModeInitOptions = {}): Promise<void> {
 		if (this.isInitialized) return;
+		this.#resumeCommand = options.resumeCommand;
+		this.setSlashCommandCatalog(options.slashCommandCatalog);
 
 		// Fresh dialog lifetime: a previous stop (if this mode is ever
 		// re-initialized) left the old controller aborted, and approvals queued
@@ -2072,7 +2077,11 @@ export class InteractiveMode implements InteractiveModeContext {
 		this.#dialogLifetime.abort();
 		this.#dialogLifetime = new AbortController();
 
-		this.keybindings = logger.time("InteractiveMode.init:keybindings", () => KeybindingsManager.create());
+		this.keybindings = logger.time(
+			"InteractiveMode.init:keybindings",
+			() => options.keybindings ?? KeybindingsManager.create(),
+		);
+		if (options.keybindings) setKeybindings(options.keybindings);
 		// Before first paint, so hints the user already learned never flash on.
 		await logger.time("InteractiveMode.init:hintUsage", () => hintUsage.load());
 
@@ -2631,6 +2640,12 @@ export class InteractiveMode implements InteractiveModeContext {
 		return [...builtinCommands, ...hookCommands, ...customCommands, ...skillCommandList];
 	}
 
+	/** Override visible slash commands without exposing native or discovered subcommands. */
+	setSlashCommandCatalog(commands: readonly SlashCommand[] | undefined): void {
+		this.#slashCommandCatalog = commands;
+		this.#rebuildSlashCommandAutocomplete(this.sessionManager.getCwd());
+	}
+
 	/** Reload session skills and the `/skill:<name>` command list. */
 	async refreshSkillState(): Promise<void> {
 		// The session's command-metadata notification rebuilds the picker.
@@ -2698,7 +2713,9 @@ export class InteractiveMode implements InteractiveModeContext {
 				iconName: "prompt",
 			}));
 		this.#baseAutocompleteProvider = this.#inputController.createAutocompleteProvider(
-			[...this.#pendingSlashCommands, ...fileSlashCommands, ...promptTemplateCommands],
+			this.#slashCommandCatalog
+				? [...this.#slashCommandCatalog]
+				: [...this.#pendingSlashCommands, ...fileSlashCommands, ...promptTemplateCommands],
 			basePath,
 		);
 		this.#applyAutocompleteProvider();
@@ -6988,9 +7005,11 @@ export class InteractiveMode implements InteractiveModeContext {
 		// durable storage — `--resume <id>` fails on a never-written file (see
 		// #resumableSessionId).
 		const sessionId = this.#resumableSessionId();
-		if (sessionId) {
+		if (sessionId && this.#resumeCommand !== false) {
 			// Command on its own line so triple-click selects just the command (#11001).
-			process.stderr.write(`\n${chalk.dim("Resume this session with")}\n${chalk.dim(resumeCommand(sessionId))}\n`);
+			process.stderr.write(
+				`\n${chalk.dim("Resume this session with")}\n${chalk.dim(this.#resumeCommand ?? resumeCommand(sessionId))}\n`,
+			);
 		}
 
 		await postmortem.quit(0);

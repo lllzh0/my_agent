@@ -169,6 +169,27 @@ describe("InteractiveMode prompt-template autocomplete (#2462)", () => {
 		expect(prefixMatches).toContain("review");
 	});
 
+	it("embedded command catalog replaces native suggestions and their argument completions", async () => {
+		const created = createHarness([
+			{ name: "hidden-prompt", description: "not exposed by host", content: "body", source: "test" },
+		]);
+		const slot = captureAutocompleteProvider(created.mode);
+		created.mode.setSlashCommandCatalog([
+			{ name: "help", description: "Host help" },
+			{ name: "retry", aliases: ["redo"], description: "Retry failed response" },
+			{ name: "session", description: "Session info", allowArgs: true },
+		]);
+		await created.mode.refreshSlashCommandState(tempDir.path(), []);
+		const all = await fetchSlashSuggestions(slot.current!, "/");
+		expect(all).toContain("help");
+		expect(await fetchSlashSuggestions(slot.current!, "/red")).toContain("redo");
+		expect(all).not.toContain("hidden-prompt");
+		expect(all).not.toContain("ssh");
+		expect(await fetchSlashSuggestions(slot.current!, "/session ")).not.toContain("delete");
+		created.mode.setSlashCommandCatalog(undefined);
+		expect(await fetchSlashSuggestions(slot.current!, "/")).toContain("hidden-prompt");
+	});
+
 	it("shows session-backed builtin status descriptions in slash-command autocomplete", async () => {
 		const created = createHarness([]);
 		const providerSlot = captureAutocompleteProvider(created.mode);

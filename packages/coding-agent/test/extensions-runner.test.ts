@@ -1663,6 +1663,60 @@ describe("ExtensionRunner", () => {
 			);
 		};
 
+		it("embedded fail-closed input waits for dialogs without losing handled", async () => {
+			const extensionPath = tempDir.join("slow-input-dialog.ts");
+			await Bun.write(
+				extensionPath,
+				`export default pi => { pi.on("input", async (_event, ctx) => { await ctx.ui.editor("Preview"); return { handled: true }; }); };`,
+			);
+			const loaded = await loadTestExtensions([extensionPath]);
+			const runner = new ExtensionRunner(
+				loaded.extensions,
+				loaded.runtime,
+				tempDir.path(),
+				sessionManager,
+				modelRegistry,
+			);
+			runner.inputFailurePolicy = "handled";
+			const errors: ExtensionError[] = [];
+			runner.onError(error => errors.push(error));
+			const ui: ExtensionUIContext = Object.create(runner.getUIContext());
+			ui.editor = async () => {
+				await Bun.sleep(70);
+				return undefined;
+			};
+			initializeRunner(runner, ui);
+			testSetExtensionHandlerTimeoutMs(20);
+			expect(await runner.emitInput("/help", undefined, "interactive")).toEqual({ handled: true });
+			expect(errors).toEqual([]);
+		});
+
+		it("embedded input timeout consumes the input and aborts late work while default stays compatible", async () => {
+			const extensionPath = tempDir.join("slow-input-operation.ts");
+			const marker = tempDir.join("late-input-write.txt");
+			await Bun.write(
+				extensionPath,
+				`export default pi => { pi.on("input", async (_event, ctx) => { await Bun.sleep(60); ctx.signal?.throwIfAborted(); await Bun.write(${JSON.stringify(marker)}, "late"); return { handled: true }; }); };`,
+			);
+			const loaded = await loadTestExtensions([extensionPath]);
+			const runner = new ExtensionRunner(
+				loaded.extensions,
+				loaded.runtime,
+				tempDir.path(),
+				sessionManager,
+				modelRegistry,
+			);
+			runner.onError(() => {});
+			testSetExtensionHandlerTimeoutMs(20);
+			const open = await runner.emitInput("default", undefined, "interactive");
+			runner.inputFailurePolicy = "handled";
+			const closed = await runner.emitInput("/undo", undefined, "interactive");
+			await Bun.sleep(90);
+			expect(open).toEqual({});
+			expect(closed).toEqual({ handled: true });
+			expect(await Bun.file(marker).exists()).toBe(false);
+		});
+
 		it("times out session_start handlers, emits an error, and continues to sibling extensions", async () => {
 			const hangExtensionPath = path.join(tempDir.path(), "hang-session-start.ts");
 			const fastExtensionPath = path.join(tempDir.path(), "fast-session-start.ts");

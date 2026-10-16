@@ -9,7 +9,7 @@ import { getProjectDir, logger, untilAborted, withTimeout } from "@oh-my-pi/pi-u
 import { describeMCPTimeout, isMCPTimeoutEnabled, resolveMCPTimeoutMs } from "./timeout";
 import { createHttpTransport } from "./transports/http";
 import { LegacySseConnectionTimeoutError, createSseTransport } from "./transports/sse";
-import { createStdioTransport } from "./transports/stdio";
+import { createStdioTransport, type StdioTransportOptions } from "./transports/stdio";
 import type {
 	MCPGetPromptParams,
 	MCPGetPromptResult,
@@ -70,12 +70,16 @@ async function defaultRequestHandler(method: string, _params: unknown): Promise<
 /**
  * Create a transport for the given server config.
  */
-async function createTransport(config: MCPServerConfig, signal?: AbortSignal): Promise<MCPTransport> {
+async function createTransport(
+	config: MCPServerConfig,
+	signal?: AbortSignal,
+	stdio?: StdioTransportOptions,
+): Promise<MCPTransport> {
 	const serverType = config.type ?? "stdio";
 
 	switch (serverType) {
 		case "stdio":
-			return createStdioTransport(config as MCPStdioServerConfig);
+			return createStdioTransport(config as MCPStdioServerConfig, { ...stdio, signal });
 		case "http":
 			return createHttpTransport(config as MCPHttpServerConfig);
 		case "sse":
@@ -152,6 +156,7 @@ export async function connectToServer(
 	config: MCPServerConfig,
 	options?: {
 		signal?: AbortSignal;
+		stdio?: StdioTransportOptions;
 		onNotification?: (method: string, params: unknown) => void;
 		onRequest?: (method: string, params: unknown) => Promise<unknown>;
 	},
@@ -163,7 +168,7 @@ export async function connectToServer(
 	let transport: MCPTransport | undefined;
 
 	const connect = async (): Promise<MCPServerConnection> => {
-		transport = await createTransport(config, options?.signal);
+		transport = await createTransport(config, options?.signal, options?.stdio);
 		if (options?.onNotification) {
 			transport.onNotification = options.onNotification;
 		}
@@ -174,6 +179,7 @@ export async function connectToServer(
 		transport.onRequest = options?.onRequest ?? defaultRequestHandler;
 
 		try {
+			options?.signal?.throwIfAborted();
 			const initResult = await initializeConnection(transport, {
 				signal: options?.signal,
 				async onInitialized() {
@@ -210,7 +216,7 @@ export async function connectToServer(
 		// If the timeout or the signal won while connect() was still pending,
 		// the transport may be alive with an open SSE listener. Close it.
 		if (transport) {
-			void transport.close().catch(() => {});
+			await transport.close().catch(() => {});
 		}
 		throw error instanceof LegacySseConnectionTimeoutError ? timeoutError : error;
 	}
