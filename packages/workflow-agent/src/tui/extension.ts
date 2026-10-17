@@ -7,22 +7,25 @@ import type { Approver } from "../policy/policy";
 import { saveConfig } from "../config/config";
 import { atomicJson, redact } from "../storage";
 import { mcpMenu } from "./mcp-menu";
-import { handleProductCommand, restoreFromCommand, showProductData, toggleProductPlan } from "./commands";
+import {
+	handleProductCommand,
+	parseProductCommand,
+	restoreFromCommand,
+	showProductData,
+	toggleProductPlan,
+} from "./commands";
+import { selectPermissions, updateProductStatus } from "./permissions";
 
 export function productExtension(
 	state: RunState,
 	approve: Approver | undefined,
 	onShutdown: () => Promise<void>,
 	getSession: () => AgentSession | undefined,
+	isSessionSwitchAllowed: (target: string | undefined) => boolean = () => false,
 ): ExtensionFactory {
 	return api => {
 		const show = showProductData;
 		let approvalContext: ExtensionContext;
-		const status = (ctx: ExtensionContext) =>
-			ctx.ui.setStatus(
-				"my-agent",
-				`My Agent · ${state.light ? "轻量" : state.policy.mode === "plan" ? "计划" : "执行"} · ${state.resources.entries.filter(entry => entry.loaded).length} 资源`,
-			);
 		api.on("session_start", (_event, ctx) => {
 			approvalContext = ctx;
 			state.policy.setApprover(
@@ -32,14 +35,14 @@ export function productExtension(
 						if (!ctx.hasUI) return "deny";
 						const choice = await ctx.ui.select(
 							replaceTabs(
-								`批准 ${request.tool}\n${String(redact(request.target))}\n${JSON.stringify(redact(request.parameters ?? {}))}`,
+								`批准 ${request.tool}\n${String(redact(request.target))}\n${JSON.stringify(redact(request.parameters ?? {}))}${request.review ? `\n${request.review.reason}` : ""}`,
 							),
 							["仅本次允许", "允许本会话完全相同的请求", "拒绝"],
 						);
 						return choice === "仅本次允许" ? "once" : choice === "允许本会话完全相同的请求" ? "session" : "deny";
 					}),
 			);
-			status(ctx);
+			updateProductStatus(state, ctx);
 			if (ctx.hasUI) {
 				ctx.ui.setTitle("My Agent · OMP");
 				ctx.ui.setHeader(
@@ -51,8 +54,38 @@ export function productExtension(
 		api.on("agent_start", () => {
 			state.turn = Bun.randomUUIDv7();
 		});
+		api.on("tool_call", event => {
+			if (event.toolName !== "goal") return;
+			const input = event.input as { op?: unknown };
+			const goal = getSession()?.getGoalModeState();
+			if (!goal || (input?.op !== "get" && !(input?.op === "complete" && goal.enabled)))
+				return {
+					block: true,
+					reason: "目标和预算只能由用户通过 /goal 管理；模型只能查看或确认已验证完成的当前目标。",
+				};
+		});
 		api.on("input", (event, ctx) => {
 			approvalContext = ctx;
+			if (state.sessions?.busy || state.sessions?.closed) {
+				ctx.ui.notify(
+					state.sessions.closed ? "会话正在关闭，无法接收新输入。" : "正在切换会话，请稍后再输入。",
+					"info",
+				);
+				return { handled: true };
+			}
+			if (event.source === "extension" && parseProductCommand(event.text)?.name === "resume") {
+				ctx.ui.notify("会话只能由用户主动恢复。", "error");
+				return { handled: true };
+			}
+			if (event.source === "extension" && ["goal", "btw"].includes(parseProductCommand(event.text)?.name ?? "")) {
+				ctx.ui.notify("目标管理和旁问只能由用户主动调用；模型请使用当前目标的 goal 工具。", "error");
+				return { handled: true };
+			}
+			if (event.source === "extension" && /^\/permissions(?:\s|$)/.test(event.text.trim())) {
+				ctx.ui.notify("授权方式只能由用户主动切换。", "error");
+				return { handled: true };
+			}
+			if (event.source !== "extension" && !parseProductCommand(event.text)) state.policy.setUserTask(event.text);
 			return handleProductCommand(event.text, state, ctx, api, getSession);
 		});
 		// Native user shell hooks do not forward their cancellation token. Do not
@@ -87,10 +120,14 @@ export function productExtension(
 			ctx.ui.notify("产品会话需要独立启动：请退出后重新运行；恢复时使用 --resume 会话文件。", "info");
 			return { cancel: true };
 		};
-		api.on("session_before_switch", cancelTransition);
+		api.on("session_before_switch", (event, ctx) => {
+			if (event.reason === "resume" && isSessionSwitchAllowed(event.targetSessionFile)) return;
+			return cancelTransition(event, ctx);
+		});
 		api.on("session_before_branch", cancelTransition);
 		api.on("session_before_tree", cancelTransition);
 		api.on("session_shutdown", async () => {
+			await state.sessions?.close();
 			state.policy.clearGrants();
 			await state.mcp.close();
 			await state.jobs.close();
@@ -100,7 +137,7 @@ export function productExtension(
 		api.registerCommand("agent-plan", {
 			description: "切换产品只读计划与执行模式",
 			handler: async (_args, ctx) => {
-				toggleProductPlan(state, ctx);
+				toggleProductPlan(state, ctx, getSession());
 			},
 		});
 		api.registerCommand("agent", {
@@ -111,6 +148,7 @@ export function productExtension(
 					"实际资源与工具",
 					"修改资源选择",
 					"权限状态",
+					"切换授权方式",
 					"MCP 外部工具",
 					"研究来源",
 					"后台任务",
@@ -143,13 +181,25 @@ export function productExtension(
 					}
 					await saveConfig(state.home, state.config);
 					ctx.ui.notify("配置已保存，重启后应用；当前会话仍使用原清单。", "info");
+				} else if (choice === "切换授权方式") {
+					await selectPermissions(state, ctx, "", () => {
+						ctx.signal?.throwIfAborted();
+						if (
+							!ctx.isIdle() ||
+							ctx.hasPendingMessages() ||
+							getSession()?.hasPostPromptWork ||
+							getSession()?.isCompacting
+						)
+							throw new Error("会话仍在运行；先停止后再切换授权方式。");
+					});
 				} else if (choice === "MCP 外部工具") await mcpMenu(state, ctx.ui, ctx.signal);
 				else if (choice === "权限状态") {
 					await show(ctx, "权限", {
 						mode: state.policy.mode,
+						permissions: state.policy.approvalMode,
 						sandbox: state.sandbox.status,
 						allowedDomains: state.config.sandbox.allowedDomains,
-						note: "使用 /agent-plan 切换模式；! 和 Python 直达入口已关闭。",
+						note: "使用 /permissions 切换授权；完整授权不使用命令沙箱。计划模式独立保持只读。",
 					});
 				} else if (choice === "研究来源")
 					await show(

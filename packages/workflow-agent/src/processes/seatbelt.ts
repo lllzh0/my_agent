@@ -5,7 +5,7 @@ import { parse, quote } from "shell-quote";
  * reopens credentials and an application home nested in that workspace.
  * Parse only the runtime-generated argv; never evaluate the command text.
  */
-export function protectMacOSCommand(wrapped: string, home: string, scratch: string): string {
+export function protectMacOSCommand(wrapped: string, home: string, scratch: string, gitWrite = false): string {
 	const parsed = parse(wrapped).map(arg => {
 		if (typeof arg === "string") return arg;
 		// shell-quote marks ASRT's escaped *.local proxy exception as a glob.
@@ -18,7 +18,9 @@ export function protectMacOSCommand(wrapped: string, home: string, scratch: stri
 		throw new Error("缺少 macOS 沙箱配置；拒绝执行");
 	const owned = `(require-all (subpath ${JSON.stringify(home)}) (require-not (subpath ${JSON.stringify(scratch)})))`;
 	const secrets = String.raw`(^|/)(\.ssh|\.aws|\.gnupg|\.env(\.[^/]+)?|auth\.json|mcp-auth\.json|id_rsa|id_ed25519|[^/]+\.(pem|key))(/|$)`;
-	const executionConfig = String.raw`(^|/)(\.git|\.agents|\.codex|\.pi|\.omp)(/|$)`;
+	const executionConfig = gitWrite
+		? String.raw`(^|/)(\.agents|\.codex|\.pi|\.omp)(/|$)`
+		: String.raw`(^|/)(\.git|\.agents|\.codex|\.pi|\.omp)(/|$)`;
 	parsed[index + 2] +=
 		`\n(deny file-read* file-write* ${owned})\n(deny file-read* file-write* (regex ${JSON.stringify(secrets)}))\n(deny file-write* (regex ${JSON.stringify(executionConfig)}))`;
 	return quote(parsed);

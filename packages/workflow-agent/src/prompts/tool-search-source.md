@@ -1,0 +1,1 @@
+Search literal text within a stored source. Results identify matching UTF-16 character offsets and PDF pages, with short excerpts. Continue with nextOffset. A complete search covers only the selected stored text, not original data excluded by acquisition or extraction limits; check coverage. Read matching sections with read_source before drawing conclusions.

@@ -1,0 +1,120 @@
+{
+  "date": "2026-10-17",
+  "status": "implemented_and_locally_verified",
+  "baseCommit": "a0a22722a4",
+  "scope": "Goal mode and BTW integration into the product host. Existing unrelated worktree changes preserved.",
+  "runtime": {
+    "bun": "1.3.14",
+    "omp": "18.10.3",
+    "platform": "macOS arm64"
+  },
+  "reuse": {
+    "goal": ["GoalRuntime", "GoalTool", "InteractiveMode goal commands and continuation scheduling"],
+    "btw": ["BtwController", "runBtwTurn", "runEphemeralTurn", "native side-history persistence"],
+    "input": ["getUserInput", "submitInteractiveInput"],
+    "newDependencies": false,
+    "claudeCodeSourceCopied": false
+  },
+  "checks": [
+    {
+      "command": "bun test packages/workflow-agent/test",
+      "exitCode": 0,
+      "passed": 228,
+      "skipped": 6,
+      "failed": 0,
+      "files": 28,
+      "assertions": 1120,
+      "log": "goal-btw-product-tests.log",
+      "note": "Includes 10 goal and 6 BTW tests. Six existing opt-in real sandbox checks were skipped."
+    },
+    {
+      "command": "bun run check",
+      "cwd": "packages/workflow-agent",
+      "exitCode": 0,
+      "covers": ["oxlint", "oxfmt", "tsgo"],
+      "log": "goal-btw-check.log"
+    },
+    {
+      "command": "bun test packages/coding-agent/test/goals packages/coding-agent/test/goal-tool-runtime-enable.test.ts packages/coding-agent/test/sdk-restricted-goal.test.ts packages/coding-agent/test/btw-history.test.ts packages/coding-agent/test/btw-follow-up.test.ts packages/coding-agent/test/btw-session-lifecycle.test.ts packages/coding-agent/test/modes/controllers/btw-controller.test.ts packages/coding-agent/test/slash-commands/btw.test.ts",
+      "environment": "Task-owned PI_CODING_AGENT_DIR and XDG data/state/cache directories; no personal configuration",
+      "exitCode": 0,
+      "passed": 173,
+      "failed": 0,
+      "files": 11,
+      "assertions": 844,
+      "log": "goal-btw-native-tests.log"
+    },
+    {
+      "command": "bun run check:types",
+      "cwd": "packages/coding-agent",
+      "exitCode": 0,
+      "log": "goal-btw-native-types.log"
+    },
+    {
+      "command": "node_modules/.bin/oxlint packages/coding-agent/src/sdk.ts packages/coding-agent/src/modes/interactive-mode.ts packages/coding-agent/test/sdk-restricted-goal.test.ts",
+      "exitCode": 0
+    },
+    {
+      "command": "node_modules/.bin/oxfmt --check packages/coding-agent/src/sdk.ts packages/coding-agent/src/modes/interactive-mode.ts packages/coding-agent/test/sdk-restricted-goal.test.ts",
+      "exitCode": 0
+    },
+    {
+      "command": "git diff --check",
+      "exitCode": 0
+    }
+  ],
+  "regressionEvidence": {
+    "humanConstraints": {
+      "before": "Two actual TUI goal scenarios failed: automatic continuation and pause/resume replaced the latest human restriction with NEED_CONTINUATION.",
+      "after": "Both pass; cold command and native-menu resumes still restore an empty review context.",
+      "redLog": "goal-context-red.log",
+      "greenLog": "goal-context-green.log"
+    },
+    "shutdownRace": "A real native goal retirement previously stranded input registration after close. The optional abort signal now terminates before or during the wait; regression passes.",
+    "toolSelection": "Actual TUI pause/completion restores the prior controlled tool set even after goal_updated cleared the enabled flag."
+  },
+  "review": {
+    "independent": "completed_no_remaining_material_findings",
+    "scope": "Goal/BTW integration and the associated SDK and input-loop changes, not the entire dirty worktree.",
+    "repairs": [
+      "Closing during native goal retirement cannot strand the input loop.",
+      "Cold goal command/menu resume restores review context.",
+      "Continuation and same-process resume preserve newer human restrictions."
+    ],
+    "independentRegressionsPassed": 5,
+    "note": "The five independently rerun product regressions are included in the 228 product passes; counts must not be added together."
+  },
+  "terminalSmoke": {
+    "mode": "Actual PTY and product CLI, offline --demo with task-owned temporary home",
+    "passed": [
+      "Idle /goal set submits the objective and displays active goal status.",
+      "Automatic continuation starts a further demo response.",
+      "/goal budget 10000 changes the displayed budget; /goal pause displays paused state.",
+      "/btw shows the native side panel; Escape closes it and bare /btw opens saved history.",
+      "/quit exits with code zero and prints a product resume command.",
+      "The printed resume command reopens a paused goal and retained BTW history without automatic goal execution.",
+      "Explicit /goal resume restarts continuation; pause and quit work afterward."
+    ],
+    "humanAcceptance": false
+  },
+  "boundaries": [
+    "Native goal registration is opt-in within restricted sessions; unrelated native tools and discovery remain restricted.",
+    "Models can inspect/complete an existing goal, but cannot create, replace, resume or drop it or change its budget.",
+    "Goal is unavailable in light mode; plan mode cannot start/resume goals. Both new slash commands require TUI.",
+    "BTW may carry tool schemas for prompt caching but does not execute tool calls or append questions/answers to the main transcript.",
+    "Native branch promotion remains blocked by product session lifecycle checks.",
+    "Goal token budget follows native usage accounting and is not a provider-side hard spending cap."
+  ],
+  "limitations": [
+    "No live OpenCode Go model, Tavily or remote MCP calls.",
+    "Goal completion quality, long task behavior and service limits still require real-model trial.",
+    "Six existing real OS sandbox checks were not rerun.",
+    "No full upstream/Rust suite, cross-platform packaging, GUI or human acceptance.",
+    "The native inline BTW footer can still display a branch shortcut even though product branch promotion is refused."
+  ],
+  "paidModelCalls": false,
+  "personalConfigModified": false,
+  "committed": false,
+  "pushed": false,
+  "artifacts": "Raw test logs are retained in the parent workspace artifacts directory. This record contains no credentials or personal conversation bodies."
+}

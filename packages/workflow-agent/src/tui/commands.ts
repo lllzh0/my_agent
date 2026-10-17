@@ -8,11 +8,19 @@ import { latestFileTurn, restoreFileChanges } from "../changes/undo";
 import { redact } from "../storage";
 import undoneMessage from "../prompts/files-undone.md" with { type: "text" };
 import { mcpMenu } from "./mcp-menu";
+import { selectPermissions, updateProductStatus } from "./permissions";
+import { resumeFromCommand } from "./resume";
 
 const commands: SlashCommand[] = [
 	{ name: "help", description: "显示当前产品支持的命令" },
 	{ name: "agent", description: "打开产品主菜单" },
 	{ name: "context", description: "查看上下文用量和已加载资源" },
+	{
+		name: "btw",
+		description: "并行问旁支问题，或查看独立保存的旁支历史",
+		argumentHint: "[问题]",
+		allowArgs: true,
+	},
 	{ name: "effort", description: "查看或设置本会话思考强度", argumentHint: "[强度]", allowArgs: true },
 	{ name: "retry", aliases: ["redo"], description: "重试上一轮失败或中断的回答" },
 	{ name: "undo", description: "撤销最近一轮未恢复的文件工具修改，保留聊天" },
@@ -26,10 +34,23 @@ const commands: SlashCommand[] = [
 		allowArgs: true,
 	},
 	{ name: "todo", description: "查看产品任务进度" },
+	{
+		name: "goal",
+		description: "持续推进目标，管理暂停、恢复和 token 预算",
+		argumentHint: "[目标|set <目标>|show|pause|resume|drop|budget <N|off>]",
+		allowArgs: true,
+	},
 	{ name: "mcp", description: "管理产品受控 MCP 连接" },
+	{
+		name: "permissions",
+		description: "切换手动、自动或完整授权",
+		argumentHint: "[manual|auto|full]",
+		allowArgs: true,
+	},
 	{ name: "plan", aliases: ["agent-plan"], description: "切换产品只读计划与执行模式" },
 	{ name: "compact", description: "压缩当前上下文", argumentHint: "[soft] [关注内容]", allowArgs: true },
 	{ name: "session", description: "查看当前会话信息", argumentHint: "[info]", allowArgs: true },
+	{ name: "resume", description: "恢复当前工作区的旧会话", argumentHint: "[会话ID]", allowArgs: true },
 	{ name: "hotkeys", description: "查看快捷键" },
 	{ name: "quit", aliases: ["q"], description: "退出并保存会话" },
 ];
@@ -45,19 +66,25 @@ export function productCommandCatalog(state: Pick<RunState, "resources">): Slash
 	];
 }
 
+export function parseProductCommand(text: string): { name: string; args: string } | undefined {
+	// Directory paths and dotted filenames are prompts. Keep colon-form commands
+	// classified as commands even when their arguments contain paths: OMP also
+	// accepts /name:args, so passing those through could invoke an unadapted builtin.
+	const match = /^\/([a-zA-Z0-9_-]+(?::[^\s]*)?)(?:\s+([\s\S]*))?$/.exec(text.trim());
+	if (match) return { name: match[1], args: (match[2] ?? "").trim() };
+}
+
 export async function showProductData(ctx: ExtensionContext, title: string, data: unknown): Promise<void> {
 	await ctx.ui.editor(title, replaceTabs(typeof data === "string" ? data : JSON.stringify(redact(data), null, 2)));
 }
 
-export function toggleProductPlan(state: RunState, ctx: ExtensionContext): void {
+export function toggleProductPlan(state: RunState, ctx: ExtensionContext, session?: AgentSession): void {
+	if (session?.getGoalModeState()?.enabled) throw new Error("目标仍在执行；先用 /goal pause 暂停，再切换计划模式。");
 	state.policy.mode = state.policy.mode === "plan" ? "execute" : "plan";
 	state.policy.clearGrants();
-	ctx.ui.setStatus(
-		"my-agent",
-		`My Agent · ${state.light ? "轻量 · " : ""}${state.policy.mode === "plan" ? "计划" : "执行"}`,
-	);
+	updateProductStatus(state, ctx);
 	ctx.ui.notify(
-		state.policy.mode === "plan" ? "计划模式：禁止写入和命令执行。" : "执行模式：副作用仍需批准。",
+		state.policy.mode === "plan" ? "计划模式：禁止写入和命令执行。" : "已进入执行模式，按当前授权方式处理操作。",
 		"info",
 	);
 }
@@ -89,8 +116,9 @@ export async function restoreFromCommand(
 	} finally {
 		// A disk error during a batch may leave a subset restored. Tell the model
 		// about exactly those files even if the command did not finish completely.
-		const ids = new Set(changes.map(change => change.id));
-		const restored = state.journal.list().filter(change => ids.has(change.id) && change.restored);
+		const restored = changes
+			.map(change => state.journal.get(change.id))
+			.filter((change): change is Change => change?.restored === true);
 		if (restored.length)
 			api.sendMessage({
 				customType: "file-undo",
@@ -109,10 +137,9 @@ export async function handleProductCommand(
 	api: ExtensionAPI,
 	getSession: () => AgentSession | undefined,
 ): Promise<InputEventResult | undefined> {
-	const match = /^\/([^\s]+)(?:\s+([\s\S]*))?$/.exec(text.trim());
-	if (!match) return;
-	const [, name, rawArgs = ""] = match;
-	const args = rawArgs.trim();
+	const parsed = parseProductCommand(text);
+	if (!parsed) return;
+	const { name, args } = parsed;
 	if (state.resources.skills.some(skill => name === `skill:${skill.name}`)) return;
 	const command = commands.find(command => command.name === name || command.aliases?.includes(name));
 	if (!command) {
@@ -124,7 +151,35 @@ export async function handleProductCommand(
 		return { handled: true };
 	};
 	if (args && !command.allowArgs) return usage();
+	if (command.name === "btw") {
+		// Native TUI dispatch owns its independent request, Escape handling, and
+		// side-history storage. It remains available while the main turn runs.
+		if (ctx.mode === "tui") return;
+		ctx.ui.notify("/btw 只支持交互终端；请启动终端界面后使用。", "info");
+		return { handled: true };
+	}
 	if (command.name === "agent") return;
+	if (command.name === "goal") {
+		if (state.light) {
+			ctx.ui.notify("轻量模式没有 goal 工具；请正常启动后使用 /goal。", "info");
+			return { handled: true };
+		}
+		if (ctx.mode !== "tui") {
+			ctx.ui.notify("/goal 需要交互终端；请在 TUI 中设置和管理目标。", "info");
+			return { handled: true };
+		}
+		if (state.policy.mode === "plan" && !/^(?:show|pause|drop)(?:\s|$)/i.test(args)) {
+			ctx.ui.notify("计划模式不能启动或恢复 goal；先用 /plan 切回执行模式。", "info");
+			return { handled: true };
+		}
+		const paused = getSession()?.getGoalModeState();
+		if (/^resume\s*$/i.test(args) && paused?.goal.status === "paused") {
+			// A cold resume needs the saved objective; same-process resumes
+			// must preserve any newer constraints the human already supplied.
+			if (!state.policy.userTask.trim()) state.policy.setUserTask(paused.goal.objective);
+		}
+		return;
+	}
 	if (["quit", "hotkeys"].includes(command.name)) return;
 	if (command.name === "compact") {
 		if (/^(?:remote|snapcompact)(?:\s|$)/i.test(args)) return usage();
@@ -143,6 +198,9 @@ export async function handleProductCommand(
 	};
 	try {
 		switch (command.name) {
+			case "resume":
+				await resumeFromCommand(state, ctx, args, ensureIdle);
+				break;
 			case "help":
 				await showProductData(
 					ctx,
@@ -165,6 +223,7 @@ export async function handleProductCommand(
 			case "usage":
 				await showProductData(ctx, "本地用量", {
 					...session.getSessionStats(),
+					automaticReview: state.policy.reviewUsage,
 					note: "仅当前会话累计；按模型返回用量及目录价格估算，不代表订阅剩余额度或账单。",
 				});
 				break;
@@ -174,6 +233,8 @@ export async function handleProductCommand(
 					...session.getSessionStats(),
 					cwd: state.cwd,
 					mode: state.policy.mode,
+					permissions: state.policy.approvalMode,
+					storage: { changes: await state.journal.stats(), sources: state.research.stats() },
 				});
 				break;
 			case "effort": {
@@ -234,8 +295,11 @@ export async function handleProductCommand(
 			case "mcp":
 				await mcpMenu(state, ctx.ui, ctx.signal);
 				break;
+			case "permissions":
+				await selectPermissions(state, ctx, args, ensureIdle);
+				break;
 			case "plan":
-				toggleProductPlan(state, ctx);
+				toggleProductPlan(state, ctx, session);
 				break;
 		}
 	} catch (error) {

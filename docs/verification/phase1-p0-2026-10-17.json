@@ -1,0 +1,139 @@
+{
+  "date": "2026-10-17",
+  "timezone": "Asia/Shanghai",
+  "purpose": "Phase 1 P0 implementation and integration; no phase-1 user acceptance claim.",
+  "gitHead": "a0a22722a421f0ecd3aad02571ab041276184661",
+  "workingTreeChanges": true,
+  "product": {
+    "package": "@my-agent/workflow-agent",
+    "version": "0.2.0",
+    "phase": 1,
+    "p0Implemented": true,
+    "userAccepted": false
+  },
+  "environment": {
+    "runtime": "Bun 1.3.14",
+    "platform": "darwin",
+    "arch": "arm64",
+    "omp": "18.10.3"
+  },
+  "checks": [
+    {
+      "name": "product static checks",
+      "command": "bun run --cwd packages/workflow-agent check",
+      "exitCode": 0,
+      "includes": [
+        "oxlint",
+        "oxfmt --check",
+        "tsgo --noEmit"
+      ]
+    },
+    {
+      "name": "product tests",
+      "command": "bun test packages/workflow-agent/test",
+      "exitCode": 0,
+      "passed": 157,
+      "skipped": 6,
+      "failed": 0,
+      "files": 18,
+      "note": "The six real macOS sandbox tests are opt-in and passed separately."
+    },
+    {
+      "name": "real macOS sandbox tests",
+      "command": "MY_AGENT_SANDBOX_TEST=1 bun test packages/workflow-agent/test/sandbox.test.ts",
+      "exitCode": 0,
+      "passed": 6,
+      "failed": 0,
+      "note": "Run outside the development host's outer sandbox. The product sandbox remained enabled; all models, MCP endpoints and project files were local fixtures."
+    },
+    {
+      "name": "coding-agent type checks",
+      "command": "bun run --cwd packages/coding-agent check:types",
+      "exitCode": 0
+    },
+    {
+      "name": "native compatibility regression",
+      "command": "bun test",
+      "files": [
+        "packages/coding-agent/test/tools/shell-tokenize.test.ts",
+        "packages/coding-agent/test/tools/approval.test.ts",
+        "packages/coding-agent/test/tools/approval-mode.test.ts",
+        "packages/coding-agent/test/agent-session-manual-retry.test.ts",
+        "packages/coding-agent/test/extensions-runner.test.ts",
+        "packages/coding-agent/test/interactive-mode-prompt-template-autocomplete.test.ts"
+      ],
+      "exitCode": 0,
+      "passed": 223,
+      "failed": 0,
+      "note": "Temporary XDG data/state/cache directories prevented writes to the user's real OMP directories."
+    },
+    {
+      "name": "offline TUI",
+      "kind": "PTY",
+      "model": "local demo",
+      "exitCode": 0,
+      "observed": [
+        "manual to auto",
+        "auto to full with no-sandbox status",
+        "plan remains separately displayed under full",
+        "full to manual",
+        "clean quit"
+      ],
+      "note": "Automated terminal operation is not human acceptance or a real-model quality test."
+    },
+    {
+      "name": "final git whitespace check",
+      "command": "git diff --check",
+      "exitCode": 0
+    }
+  ],
+  "review": {
+    "scope": "Permissions, processes, MCP, change/source stores, root tool/CLI integration",
+    "fixed": [
+      "Non-exact reviewer text could be parsed as allow",
+      "Git scope could include newline or command substitutions",
+      "MCP preparation could outlive the approved permission revision",
+      "Long user task suffix constraints were silently removed",
+      "Large or partial file undo notices omitted restored files",
+      "Concurrent legacy source import could duplicate its migration marker",
+      "CLI direct prompts omitted the human task from auto review",
+      "Background launch approval could ignore cancellation",
+      "Command/file dispatch could capture a new revision after an old authorization"
+    ],
+    "finalFocusedFindingsRemaining": 0,
+    "lastRevocationRegression": {
+      "failedBefore": 2,
+      "passedAfter": 2,
+      "independentlyRechecked": true
+    }
+  },
+  "reuse": {
+    "native": [
+      "session and transcript",
+      "retry/compaction/usage",
+      "TUI",
+      "read/write/edit",
+      "glob/grep engine",
+      "strict shell parser",
+      "model client and judgment API"
+    ],
+    "keptWithoutBroadRewrite": [
+      "existing product background management",
+      "existing public URL acquisition and PDF extraction"
+    ]
+  },
+  "unverified": [
+    "Real OpenCode Go / DeepSeek V4.1 Flash and chosen search service full workflows",
+    "Cause of the historical post-read model stream stall",
+    "Real throttling, disconnection and long-task model quality",
+    "Three coding and three research tasks plus user acceptance",
+    "Other platforms, OCR, full OMP/Rust workspace checks and independent installer"
+  ],
+  "authority": {
+    "realPaidModelCalls": false,
+    "readRealCredentials": false,
+    "committed": false,
+    "pushed": false,
+    "enteredPhase2": false
+  }
+}

@@ -1,5 +1,31 @@
 import { describe, expect, it } from "bun:test";
-import { extractLeadingCdTarget, lexShellCommand, readShellWord } from "@oh-my-pi/pi-coding-agent/tools/shell-tokenize";
+import {
+	extractLeadingCdTarget,
+	extractLiteralAndChainSegments,
+	lexShellCommand,
+	readShellWord,
+} from "@oh-my-pi/pi-coding-agent/tools/shell-tokenize";
+
+describe("extractLiteralAndChainSegments", () => {
+	it("only accepts a literal single command when the caller explicitly enables it", () => {
+		const command = "git commit -m 'literal $(text)'";
+		expect(extractLiteralAndChainSegments(command)).toBeNull();
+		expect(extractLiteralAndChainSegments(command, { allowSingle: true })).toEqual([
+			{ text: command, argv: ["git", "commit", "-m", "literal $(text)"] },
+		]);
+		expect(
+			extractLiteralAndChainSegments("git add file.txt && git commit -m done")?.map(segment => segment.argv),
+		).toEqual([
+			["git", "add", "file.txt"],
+			["git", "commit", "-m", "done"],
+		]);
+	});
+
+	it("still rejects executable expansions in an explicitly enabled single command", () => {
+		expect(extractLiteralAndChainSegments('git status "$(touch marker)"', { allowSingle: true })).toBeNull();
+		expect(extractLiteralAndChainSegments("git status\ntouch marker", { allowSingle: true })).toBeNull();
+	});
+});
 
 describe("lexShellCommand", () => {
 	it("splits words from separators, keeping verbatim spelling beside the quote-removed value", () => {

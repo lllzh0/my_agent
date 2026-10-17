@@ -10,20 +10,17 @@ import { initializeExtensions } from "@oh-my-pi/pi-coding-agent/modes/runtime-in
 import type { ToolSession } from "@oh-my-pi/pi-coding-agent/tools";
 import { cfgToolsApproval } from "@oh-my-pi/pi-coding-agent/tools/settings";
 import { loadConfig, defaultConfig } from "../config/config";
-import { Policy, contained, type Approver } from "../policy/policy";
-import { Sandbox } from "../processes/sandbox";
-import { Supervisor } from "../processes/supervisor";
-import { ChangeJournal } from "../changes/journal";
-import { Research } from "../research/research";
-import { Workflow } from "../workflow/workflow";
+import { Policy, contained, type Approver, type ApprovalMode } from "../policy/policy";
+import { createReviewer } from "../policy/reviewer";
 import { atomicJson, readJson, record } from "../storage";
 import { loadResources } from "./resources";
 import type { RunState } from "./state";
 import { productTools } from "./tools";
 import { productExtension } from "../tui/extension";
 import { startDemo } from "./demo";
-import { ManagedMcp } from "../mcp/manager";
-import { Diagnostics } from "../diagnostics/errors";
+import { closeSessionRuntime, openSessionRuntime, sessionStateDirectory } from "./session-state";
+import { ProductSessions, type ResumeUI } from "./sessions";
+import { logger } from "@oh-my-pi/pi-utils";
 
 export interface HostOptions {
 	home: string;
@@ -33,10 +30,12 @@ export interface HostOptions {
 	interactive?: boolean;
 	resume?: string;
 	approve?: Approver;
+	permissions?: ApprovalMode;
 }
 export interface Host extends CreateAgentSessionResult {
 	state: RunState;
 	closed: Promise<void>;
+	setResumeUI(handler: ResumeUI | undefined): void;
 	dispose(): Promise<void>;
 }
 
@@ -63,7 +62,7 @@ export async function openHost(options: HostOptions): Promise<Host> {
 		if ((await fs.realpath(manager.getCwd())) !== cwd) {
 			throw new Error("恢复会话的工作区不一致");
 		}
-		const stateDir = path.join(home, "state", manager.getSessionId());
+		const stateDir = sessionStateDirectory(home, manager.getSessionId());
 		const previous = await readJson(path.join(stateDir, "manifest.json"));
 		if (
 			options.resume &&
@@ -77,22 +76,10 @@ export async function openHost(options: HostOptions): Promise<Host> {
 		const policy = new Policy(cwd, structuredClone(config.permissions));
 		policy.protectedRoots = [home];
 		policy.setApprover(options.approve ?? (async () => "deny"));
+		policy.setApprovalMode(options.permissions ?? config.permissions.approval ?? "manual");
 		for (const input of [...config.resources.instructions, ...config.resources.skills])
 			if (!light) policy.settings.readRoots.push(path.resolve(cwd, input));
-		const sandbox = new Sandbox(
-			cwd,
-			stateDir,
-			config.permissions.allowNetwork ? config.sandbox.allowedDomains : [],
-			policy.settings.readRoots,
-			home,
-		);
-		const jobs = new Supervisor(stateDir, cwd, policy, sandbox);
-		const mcp = new ManagedMcp(config.mcpServers, policy, sandbox, cwd, stateDir, light);
-		const journal = new ChangeJournal(stateDir, cwd);
-		const research = new Research(stateDir, config.search);
-		const workflow = new Workflow(path.join(stateDir, "workflow.json"));
-		const diagnostics = new Diagnostics(stateDir);
-		await Promise.all([jobs.load(), journal.load(), research.load(), workflow.load(), diagnostics.load()]);
+		let activeRuntime = await openSessionRuntime(home, cwd, manager.getSessionId(), config, light, policy);
 		const state: RunState = {
 			home,
 			cwd,
@@ -102,18 +89,19 @@ export async function openHost(options: HostOptions): Promise<Host> {
 			config,
 			resources,
 			policy,
-			sandbox,
-			jobs,
-			mcp,
-			journal,
-			research,
-			workflow,
+			sandbox: activeRuntime.sandbox,
+			jobs: activeRuntime.jobs,
+			mcp: activeRuntime.mcp,
+			journal: activeRuntime.journal,
+			research: activeRuntime.research,
+			workflow: activeRuntime.workflow,
 			turn: "initial",
 		};
 		const closed = Promise.withResolvers<void>();
 		const auth = new AuthStorage(new SqliteAuthCredentialStore(new Database(":memory:")));
 		const demo = options.demo ? startDemo() : undefined;
 		let created: CreateAgentSessionResult | undefined;
+		let sessions: ProductSessions | undefined;
 		try {
 			const settings = await Settings.init({
 				cwd: agentDir,
@@ -134,6 +122,8 @@ export async function openHost(options: HostOptions): Promise<Host> {
 					"edit.mode": "replace",
 					"startup.quiet": true,
 					"input.bareSlashCommands": false,
+					"task.completionProbe": false,
+					"goal.enabled": !light,
 				},
 			});
 			const selected = demo ? defaultConfig().model : config.model;
@@ -154,6 +144,7 @@ export async function openHost(options: HostOptions): Promise<Host> {
 						? { baseUrl: selected.baseUrl }
 						: {}),
 			};
+			policy.setReviewer(createReviewer(model, key, state.sessionId, policy));
 			const toolContext: ToolSession = {
 				cwd,
 				hasUI: false,
@@ -168,7 +159,10 @@ export async function openHost(options: HostOptions): Promise<Host> {
 			const tools = light ? [] : productTools(state, toolContext);
 			// Product tools make their own per-request authorization decisions. OMP
 			// admits only these wrappers; unknown tools retain always-ask behavior.
-			cfgToolsApproval.override(settings, Object.fromEntries(tools.map(tool => [tool.name, "allow"])));
+			cfgToolsApproval.override(
+				settings,
+				Object.fromEntries([...tools.map(tool => [tool.name, "allow"]), ...(!light ? [["goal", "allow"]] : [])]),
+			);
 			created = await createAgentSession({
 				cwd,
 				agentDir,
@@ -189,6 +183,7 @@ export async function openHost(options: HostOptions): Promise<Host> {
 				disableExtensionDiscovery: true,
 				restrictToolNames: true,
 				allowRestrictedCustomTools: true,
+				allowRestrictedGoalTool: !light,
 				toolNames: tools.map(tool => tool.name),
 				// OMP 18.10.3 treats unmarked definitions as legacy CustomTool
 				// callbacks, whose cancellation and update arguments have a different order.
@@ -210,21 +205,60 @@ export async function openHost(options: HostOptions): Promise<Host> {
 								closed.resolve();
 							},
 							() => created?.session,
+							target => sessions?.permitsNativeSwitch(target) ?? false,
 						),
 					},
 				],
 			});
+			const session = created.session;
+			sessions = new ProductSessions(state, created.session, async next => {
+				const previousRuntime = activeRuntime;
+				activeRuntime = next;
+				const { diagnostics: _diagnostics, ...fields } = next;
+				Object.assign(state, fields, { turn: "initial" });
+				policy.setReviewer(createReviewer(model, key, state.sessionId, policy));
+				try {
+					await closeSessionRuntime(previousRuntime);
+				} catch (error) {
+					logger.warn("Previous product session cleanup failed", { error: String(error) });
+				}
+			});
+			state.sessions = sessions;
+			created.session.setSubmissionGuard(() => sessions!.assertSubmissionAllowed());
 			if (created.session.extensionRunner) created.session.extensionRunner.inputFailurePolicy = "handled";
 			const streamBuffer = created.session.rawSseDebugBuffer;
 			created.session.subscribe(event => {
-				if (event.type === "tool_execution_end" && event.isError) diagnostics.record("tool", event.result);
+				if (
+					event.type === "message_start" &&
+					event.message.role === "custom" &&
+					event.message.customType === "goal-continuation"
+				) {
+					// A cold resume through OMP's human menu has no task context yet.
+					// Seed it from the active goal without replacing newer human limits.
+					const goal = created?.session.getGoalModeState();
+					if (goal?.enabled && !state.policy.userTask.trim()) state.policy.setUserTask(goal.goal.objective);
+				}
+				if (event.type === "message_start" && event.message.role === "user") {
+					const text =
+						typeof event.message.content === "string"
+							? event.message.content
+							: event.message.content
+									.filter(item => item.type === "text")
+									.map(item => item.text)
+									.join("\n");
+					if (text.trim() && !event.message.synthetic) {
+						state.policy.setUserTask(text);
+					}
+				}
+				if (event.type === "tool_execution_end" && event.isError)
+					activeRuntime.diagnostics.record("tool", event.result);
 				if (
 					event.type === "message_end" &&
 					event.message.role === "assistant" &&
 					["error", "aborted"].includes(event.message.stopReason)
 				) {
-					diagnostics.record("model", event.message.errorMessage ?? "操作已取消");
-					diagnostics.recordModelStream(event.message, streamBuffer.snapshot());
+					activeRuntime.diagnostics.record("model", event.message.errorMessage ?? "操作已取消");
+					activeRuntime.diagnostics.recordModelStream(event.message, streamBuffer.snapshot());
 				}
 			});
 			await atomicJson(path.join(stateDir, "manifest.json"), {
@@ -243,23 +277,25 @@ export async function openHost(options: HostOptions): Promise<Host> {
 						throw new Error(error.error);
 					},
 				});
-			const session = created.session;
 			let disposing: Promise<void> | undefined;
 			return {
 				...created,
 				state,
 				closed: closed.promise,
+				setResumeUI: handler => sessions!.setUI(handler),
 				dispose() {
 					disposing ??= (async () => {
 						try {
+							await sessions!.close();
 							await session.dispose();
 						} finally {
-							await mcp.close();
-							await jobs.close();
-							await diagnostics.flush();
-							auth.close();
-							demo?.stop(true);
-							closed.resolve();
+							try {
+								await closeSessionRuntime(activeRuntime);
+							} finally {
+								auth.close();
+								demo?.stop(true);
+								closed.resolve();
+							}
 						}
 					})();
 					return disposing;
@@ -269,11 +305,12 @@ export async function openHost(options: HostOptions): Promise<Host> {
 			try {
 				await created?.session.dispose();
 			} finally {
-				await mcp.close();
-				await jobs.close();
-				await diagnostics.flush();
-				auth.close();
-				demo?.stop(true);
+				try {
+					await closeSessionRuntime(activeRuntime);
+				} finally {
+					auth.close();
+					demo?.stop(true);
+				}
 			}
 			throw error;
 		}

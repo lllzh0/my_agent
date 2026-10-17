@@ -1,8 +1,94 @@
 import { expect, test } from "bun:test";
 import * as path from "node:path";
+import * as fs from "node:fs/promises";
 import { fixture } from "./helpers";
 
 const sandboxTest = process.env.MY_AGENT_SANDBOX_TEST === "1" && process.platform === "darwin" ? test : test.skip;
+
+sandboxTest(
+	"the CLI auto mode passes the human task to a separate reviewer before sandbox execution",
+	async () => {
+		const f = await fixture();
+		try {
+			f.reviewReply("allow");
+			f.callTool("bash", { command: "printf AUTO_REVIEWED_COMMAND" });
+			const run = await f.cli(
+				["--permissions", "auto"],
+				"Print AUTO_REVIEWED_COMMAND to verify the command channel",
+			);
+			expect(run.code, run.stderr).toBe(0);
+			const toolMessages = f.requests.at(-1)!.messages.filter(message => message.role === "tool");
+			expect(JSON.stringify(toolMessages)).toContain("AUTO_REVIEWED_COMMAND");
+			expect(JSON.stringify(toolMessages)).toContain("succeeded");
+			const reviewIndex = f.requestHeaders.findIndex(header => header.sessionId?.endsWith(":review"));
+			expect(reviewIndex).toBeGreaterThanOrEqual(0);
+			expect(f.requests[reviewIndex].tools ?? []).toHaveLength(0);
+			expect(JSON.stringify(f.requests[reviewIndex].messages)).toContain("Print AUTO_REVIEWED_COMMAND");
+		} finally {
+			await f.close();
+		}
+	},
+	30000,
+);
+
+sandboxTest(
+	"a sandboxed Git command can write metadata only with the explicit Git scope",
+	async () => {
+		const f = await fixture();
+		try {
+			// Repository creation writes protected hooks/config; ordinary Git scope
+			// permits staging, while those security files remain protected.
+			f.callTool("bash", { command: "git init --quiet" });
+			const initialized = await f.run({
+				action: "commands",
+				commands: ["/permissions full"],
+				promptAfterCommands: "Initialize this temporary repository",
+			});
+			expect(initialized.code, initialized.stderr).toBe(0);
+			expect(initialized.result.jobs[0].status).toBe("succeeded");
+			await Bun.write(path.join(f.cwd, "stage.txt"), "STAGED_FILE");
+			f.callTool("bash", { command: "git add stage.txt" });
+			const denied = await f.run({ approve: true });
+			expect(denied.code, denied.stderr).toBe(0);
+			expect(denied.result.jobs[0].status).toBe("failed");
+			expect(await Bun.file(path.join(f.cwd, ".git/index")).exists()).toBe(false);
+			f.callTool("bash", { command: "git add stage.txt", gitWrite: true });
+			const allowed = await f.run({ approve: true });
+			expect(allowed.code, allowed.stderr).toBe(0);
+			expect(allowed.result.jobs[0].status, JSON.stringify(allowed.result.messages)).toBe("succeeded");
+			expect(await Bun.file(path.join(f.cwd, ".git/index")).exists()).toBe(true);
+		} finally {
+			await f.close();
+		}
+	},
+	30000,
+);
+
+sandboxTest(
+	"sandboxed builds can use selected toolchain read roots and external output roots",
+	async () => {
+		const f = await fixture();
+		try {
+			const toolchain = path.join(f.root, "toolchain");
+			const output = path.join(f.root, "build-output");
+			await Bun.write(path.join(toolchain, "input.txt"), "TOOLCHAIN_INPUT");
+			await fs.mkdir(output);
+			f.config.permissions.readRoots = [toolchain];
+			f.config.permissions.writeRoots = [output];
+			f.callTool("bash", {
+				command: "cat " + quote(path.join(toolchain, "input.txt")) + " > " + quote(path.join(output, "result.txt")),
+			});
+			const run = await f.run({ approve: true });
+			expect(run.code, run.stderr).toBe(0);
+			expect(run.result.jobs[0].status).toBe("succeeded");
+			expect(await Bun.file(path.join(output, "result.txt")).text()).toBe("TOOLCHAIN_INPUT");
+		} finally {
+			await f.close();
+		}
+	},
+	30000,
+);
+
 const quote = (value: string) => `'${value.replace(/'/g, `'\\''`)}'`;
 
 sandboxTest(

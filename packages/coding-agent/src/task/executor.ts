@@ -6,7 +6,13 @@
 
 import * as fs from "node:fs/promises";
 import path from "node:path";
-import type { AgentEvent, AgentIdentity, AgentMessage, AgentTelemetryConfig } from "@oh-my-pi/pi-agent-core";
+import type {
+	AgentBeforeModelCall,
+	AgentEvent,
+	AgentIdentity,
+	AgentMessage,
+	AgentTelemetryConfig,
+} from "@oh-my-pi/pi-agent-core";
 import { AgentBusyError, EventLoopKeepalive, recordHandoff, resolveTelemetry } from "@oh-my-pi/pi-agent-core";
 import type { Api, Model, ServiceTierByFamily, Usage } from "@oh-my-pi/pi-ai";
 import { isRecord, logger, popLoopPhase, prompt, pushLoopPhase, sanitizeText, untilAborted } from "@oh-my-pi/pi-utils";
@@ -480,7 +486,12 @@ export interface ExecutorOptions {
 	 */
 	enableMCP?: boolean;
 	/** Kernel-defined tools explicitly exposed by the parent eval session. */
-	customTools?: CustomTool[];
+	customTools?: CreateAgentSessionOptions["customTools"];
+	/** Embedded hosts can keep their controlled tools and exact model endpoint. */
+	allowRestrictedCustomTools?: boolean;
+	explicitModel?: Model;
+	/** Complete host-owned prompt; suppresses the native default prompt when supplied. */
+	hostSystemPrompt?: string;
 	/** Workpool items accepted by the child yield tool during this turn. */
 	workPoolYieldItems?: WorkPoolYieldItem[];
 	/**
@@ -590,6 +601,8 @@ export interface ExecutorOptions {
 	keepAlive?: boolean;
 	/** Internal ownership handoff for cleanup that outlives the visible Task result. */
 	onCleanupDeferred?: (completion: Promise<void>) => void;
+	/** Additional request gate for this invocation, composed with session-owned gates. */
+	beforeModelCall?: AgentBeforeModelCall;
 	/** Releases resources retained for a kept-alive agent when its lifecycle ends. */
 	onRelease?: () => Promise<void>;
 	/** Internal cleanup grace override for deterministic lifecycle tests. */
@@ -2511,7 +2524,14 @@ async function driveSessionToResult(
 				// A turn waiting on owner work is a scheduling pause. The outer
 				// barrier settles that work before a reminder counts against it.
 				if (!budgetStop && session.hasPendingAsyncWork()) break;
+				const reportTools =
+					budgetStop && !structured
+						? { enabled: session.getEnabledToolNames(), mounted: session.getMountedXdevToolNames() }
+						: undefined;
 				try {
+					// Some providers reject tool_choice, so "none" alone cannot
+					// enforce the tool-free report promised by this reminder.
+					if (reportTools) await session.setActiveToolsByName([]);
 					retryCount++;
 					const reminder = prompt.render(submitReminderTemplate, {
 						retryCount,
@@ -2551,6 +2571,7 @@ async function driveSessionToResult(
 						});
 					}
 				} finally {
+					if (reportTools) await session.setActiveToolPresentation(reportTools.enabled, reportTools.mounted);
 					if (retriesForced) {
 						retriesForced = false;
 						monitor.markFinalYieldForced(false);
@@ -3717,6 +3738,7 @@ export async function runSubagentFollowUpTurn(options: FollowUpTurnOptions): Pro
 interface SubagentPromptInputs {
 	id: string;
 	agentSystemPrompt: string;
+	hostSystemPrompt?: string;
 	context: string;
 	planReference: string;
 	planReferencePath: string;
@@ -3782,36 +3804,38 @@ function buildSubagentSessionOptions(
 		expectedAgentRef,
 		resolveServiceTierByFamily: launch?.resolveServiceTierByFamily,
 		onFirstChatDispatch: launch?.onFirstChatDispatch,
-		systemPrompt: defaultPrompt => {
-			const ircRoster = inputs.ircEnabled
-				? collectIrcPeerRoster(AgentRegistry.global(), inputs.id, inputs.ircRoot.sessionFile)
-				: undefined;
-			const subagentPrompt = prompt.render(subagentSystemPromptTemplate, {
-				agent: inputs.agentSystemPrompt,
-				context: inputs.context,
-				planReference: inputs.planReference,
-				planReferencePath: inputs.planReferencePath,
-				worktree: inputs.worktree,
-				structured: inputs.structured,
-				outputSchema: inputs.outputSchema,
-				outputSchemaOverridesAgent: inputs.outputSchemaOverridesAgent,
-				// Read the live item set through the registry instead of capturing the session, which
-				// would pin its whole graph past park. A revive builds while the registry session is
-				// null, so it renders the cleared set rather than the launch-time pooled instructions.
-				workPoolYieldItems:
-					AgentRegistry.global().get(inputs.id)?.session?.getWorkPoolYieldItems?.() ??
-					launch?.workPoolYieldItems ??
-					[],
-				ircPeers: ircRoster?.peers ?? [],
-				ircParkedCount: ircRoster?.parkedCount ?? 0,
-				ircOmittedCount: ircRoster?.omittedCount ?? 0,
-				ircSelfId: inputs.ircEnabled ? inputs.id : "",
-			});
-			// Per-spawn text (context, worktree, IRC roster) goes after the trailing
-			// `<project-context>` block so spawns of the same agent share the static
-			// prompt prefix as a cache hit.
-			return [...defaultPrompt, subagentPrompt];
-		},
+		systemPrompt:
+			inputs.hostSystemPrompt ??
+			(defaultPrompt => {
+				const ircRoster = inputs.ircEnabled
+					? collectIrcPeerRoster(AgentRegistry.global(), inputs.id, inputs.ircRoot.sessionFile)
+					: undefined;
+				const subagentPrompt = prompt.render(subagentSystemPromptTemplate, {
+					agent: inputs.agentSystemPrompt,
+					context: inputs.context,
+					planReference: inputs.planReference,
+					planReferencePath: inputs.planReferencePath,
+					worktree: inputs.worktree,
+					structured: inputs.structured,
+					outputSchema: inputs.outputSchema,
+					outputSchemaOverridesAgent: inputs.outputSchemaOverridesAgent,
+					// Read the live item set through the registry instead of capturing the session, which
+					// would pin its whole graph past park. A revive builds while the registry session is
+					// null, so it renders the cleared set rather than the launch-time pooled instructions.
+					workPoolYieldItems:
+						AgentRegistry.global().get(inputs.id)?.session?.getWorkPoolYieldItems?.() ??
+						launch?.workPoolYieldItems ??
+						[],
+					ircPeers: ircRoster?.peers ?? [],
+					ircParkedCount: ircRoster?.parkedCount ?? 0,
+					ircOmittedCount: ircRoster?.omittedCount ?? 0,
+					ircSelfId: inputs.ircEnabled ? inputs.id : "",
+				});
+				// Per-spawn text (context, worktree, IRC roster) goes after the trailing
+				// `<project-context>` block so spawns of the same agent share the static
+				// prompt prefix as a cache hit.
+				return [...defaultPrompt, subagentPrompt];
+			}),
 	};
 }
 
@@ -4116,6 +4140,7 @@ export async function runSubprocess(options: ExecutorOptions): Promise<SingleRes
 	});
 	const progress = monitor.progress;
 	let unsubscribe: (() => void) | null = null;
+	let removeRequestGate: (() => void) | undefined;
 	let registryAbortUnsubscribe: (() => void) | null = null;
 	let reviveSession: AgentReviver | null = null;
 	const wakeOptions: IrcWakeTurnMonitorOptions = {
@@ -4212,7 +4237,7 @@ export async function runSubprocess(options: ExecutorOptions): Promise<SingleRes
 						)
 					: undefined;
 			const {
-				model,
+				model: resolvedModel,
 				thinkingLevel: resolvedThinkingLevel,
 				explicitThinkingLevel,
 				authFallbackUsed,
@@ -4226,6 +4251,7 @@ export async function runSubprocess(options: ExecutorOptions): Promise<SingleRes
 					id,
 				),
 			);
+			const model = options.explicitModel ?? resolvedModel;
 			if (modelResolutionWarning) {
 				logger.warn("Subagent model resolution warning", {
 					warning: modelResolutionWarning,
@@ -4415,6 +4441,7 @@ export async function runSubprocess(options: ExecutorOptions): Promise<SingleRes
 					outputSchema,
 					outputSchemaMode: options.outputSchemaMode,
 					restrictToolNames: options.restrictToolNames,
+					allowRestrictedCustomTools: options.allowRestrictedCustomTools,
 					requireYieldTool: structured,
 					contextFiles: options.contextFiles,
 					skills: options.skills,
@@ -4454,6 +4481,7 @@ export async function runSubprocess(options: ExecutorOptions): Promise<SingleRes
 				prompt: {
 					id,
 					agentSystemPrompt: agent.systemPrompt,
+					hostSystemPrompt: options.hostSystemPrompt,
 					context: options.context?.trim() ?? "",
 					planReference: options.planReference?.content ?? "",
 					planReferencePath: options.planReference?.path ?? "",
@@ -4500,9 +4528,17 @@ export async function runSubprocess(options: ExecutorOptions): Promise<SingleRes
 				// Abort raced session startup. The session may still resolve later
 				// holding live LSP/MCP child processes — dispose it when it does so
 				// a cancelled subagent cannot leak them.
-				void sessionPromise?.then(created => created.session.dispose()).catch(() => {});
+				if (sessionPromise) {
+					const cleanup = sessionPromise.then(
+						created => created.session.dispose(),
+						() => {},
+					);
+					trackLateCleanup(cleanup, { id, resource: "subagent startup" });
+					options.onCleanupDeferred?.(cleanup);
+				}
 				throw err;
 			}
+			if (options.beforeModelCall) removeRequestGate = session.agent.addBeforeModelCall(options.beforeModelCall);
 			mcpFollower?.bind(session);
 			// The SDK records a new session's initial model as the default role.
 			// Pin the child's own chain so a parent default sharing that model
@@ -4686,6 +4722,7 @@ export async function runSubprocess(options: ExecutorOptions): Promise<SingleRes
 				error = err instanceof Error ? err.stack || err.message : String(err);
 			}
 		} finally {
+			removeRequestGate?.();
 			const cleanupDeadlineAt = Date.now() + cleanupGraceMs;
 			const cleanupChangeStatus =
 				worktree === undefined

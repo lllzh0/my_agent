@@ -1,11 +1,16 @@
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
+import type { Config } from "../src/config/config";
 
 export interface WireRequest {
 	model: string;
 	messages: { role: string; content: unknown }[];
 	tools?: { function: { name: string } }[];
+}
+export interface WireReply {
+	call?: { name: string; arguments: unknown };
+	text?: string;
 }
 
 export async function fixture(homeInsideWorkspace = false) {
@@ -17,9 +22,15 @@ export async function fixture(homeInsideWorkspace = false) {
 	const requestHeaders: { sessionId: string | null; userAgent: string | null }[] = [];
 	let toolCall: { name: string; arguments: unknown } | undefined;
 	let toolSequence: { name: string; arguments: unknown }[] | undefined;
+	let toolPrompt: string | undefined;
 	let failAfterTools: number | undefined;
 	let modelFailure: { status: number; message: string } | undefined;
 	let stallAfterTool = false;
+	let stallChild = false;
+	let reviewReply = "uncertain";
+	let responder: ((request: WireRequest, sessionId: string | null) => WireReply | undefined) | undefined;
+	let rootSession: string | null | undefined;
+	const savedRootSessions = new Set<string>();
 	const server = Bun.serve({
 		hostname: "127.0.0.1",
 		port: 0,
@@ -39,11 +50,25 @@ export async function fixture(homeInsideWorkspace = false) {
 					{ error: { message: failure.message, type: "fixture_error" } },
 					{ status: failure.status },
 				);
-			const call = toolSequence
-				? toolSequence[toolResults]
-				: toolCall && !body.messages.some(message => message.role === "tool")
-					? toolCall
-					: undefined;
+			const reviewing = request.headers.get("x-opencode-session")?.endsWith(":review") === true;
+			if (!reviewing && rootSession === undefined) rootSession = request.headers.get("x-opencode-session");
+			const eligible =
+				(request.headers.get("x-opencode-session") === rootSession ||
+					savedRootSessions.has(request.headers.get("x-opencode-session") ?? "")) &&
+				(!toolPrompt ||
+					JSON.stringify(body.messages.findLast(message => message.role === "user")?.content).includes(
+						toolPrompt,
+					));
+			const reply = responder?.(body, request.headers.get("x-opencode-session"));
+			const call = reply
+				? reply.call
+				: reviewing || !eligible
+					? undefined
+					: toolSequence
+						? toolSequence[toolResults]
+						: toolCall && !body.messages.some(message => message.role === "tool")
+							? toolCall
+							: undefined;
 			const delta = call
 				? {
 						role: "assistant",
@@ -57,9 +82,17 @@ export async function fixture(homeInsideWorkspace = false) {
 							},
 						],
 					}
-				: { role: "assistant", reasoning_content: "", content: "LOCAL_PRODUCT_OK" };
+				: {
+						role: "assistant",
+						reasoning_content: "",
+						content: reply?.text ?? (reviewing ? reviewReply : "LOCAL_PRODUCT_OK"),
+					};
 			const base = { id: "product", object: "chat.completion.chunk", created: 1, model: body.model };
-			if (stallAfterTool && body.messages.some(message => message.role === "tool")) {
+			const childStalled =
+				stallChild &&
+				JSON.stringify(body.messages.findLast(message => message.role === "user")?.content).includes("STALL_CHILD");
+			if (childStalled) await Bun.write(path.join(home, "child-request-received"), "ready");
+			if (childStalled || (stallAfterTool && body.messages.some(message => message.role === "tool"))) {
 				return new Response(
 					new ReadableStream<Uint8Array>({
 						start(controller) {
@@ -84,7 +117,7 @@ export async function fixture(homeInsideWorkspace = false) {
 			);
 		},
 	});
-	const config = {
+	const config: Config = {
 		version: 1,
 		model: {
 			provider: "opencode-go",
@@ -110,11 +143,15 @@ export async function fixture(homeInsideWorkspace = false) {
 		config,
 		requests,
 		requestHeaders,
+		respond(callback: (request: WireRequest, sessionId: string | null) => WireReply | undefined) {
+			responder = callback;
+		},
 		callTool(name: string, args: unknown) {
 			toolCall = { name, arguments: args };
 		},
-		callTools(calls: { name: string; arguments: unknown }[]) {
+		callTools(calls: { name: string; arguments: unknown }[], prompt?: string) {
 			toolSequence = calls;
+			toolPrompt = prompt;
 		},
 		failAfterTools(count: number | undefined) {
 			failAfterTools = count;
@@ -128,6 +165,41 @@ export async function fixture(homeInsideWorkspace = false) {
 		stallAfterTool() {
 			stallAfterTool = true;
 		},
+		stallChild() {
+			stallChild = true;
+		},
+		reviewReply(value: string) {
+			reviewReply = value;
+		},
+		async cli(args: string[], prompt = "Create the requested file") {
+			rootSession = undefined;
+			await Bun.write(path.join(home, "config.json"), JSON.stringify(config));
+			const child = Bun.spawn(
+				[
+					process.execPath,
+					path.resolve(import.meta.dir, "../src/launcher.ts"),
+					"--home",
+					home,
+					"--cwd",
+					cwd,
+					"--print",
+					"--prompt",
+					prompt,
+					...args,
+				],
+				{
+					env: { PATH: process.env.PATH, HOME: os.homedir(), TERM: "dumb", PRODUCT_TEST_KEY: "local-fixture-key" },
+					stdout: "pipe",
+					stderr: "pipe",
+				},
+			);
+			const [stdout, stderr, code] = await Promise.all([
+				new Response(child.stdout).text(),
+				new Response(child.stderr).text(),
+				child.exited,
+			]);
+			return { stdout, stderr, code };
+		},
 		async run(
 			options: {
 				light?: boolean;
@@ -138,9 +210,18 @@ export async function fixture(homeInsideWorkspace = false) {
 				planOnApproval?: "connect" | "call";
 				resume?: string;
 				action?: string;
+				inputSource?: "interactive" | "extension";
 				command?: string;
 				commands?: string[];
 				promptAfterCommands?: string;
+				promptsBefore?: string[];
+				resumeSelection?: string;
+				resumeScenario?:
+					| "busy"
+					| "switch-failure"
+					| "post-switch-failure"
+					| "input-during-switch"
+					| "retry-key-during-switch";
 				undoScenario?:
 					| "normal"
 					| "conflict"
@@ -152,6 +233,7 @@ export async function fixture(homeInsideWorkspace = false) {
 				cwd?: string;
 			} = {},
 		) {
+			rootSession = undefined;
 			await Bun.write(path.join(home, "config.json"), JSON.stringify(config));
 			const resultFile = path.join(root, "result.json");
 			await fs.rm(resultFile, { force: true });
@@ -186,6 +268,7 @@ export async function fixture(homeInsideWorkspace = false) {
 				child.exited,
 			]);
 			const result = (await Bun.file(resultFile).exists()) ? await Bun.file(resultFile).json() : undefined;
+			if (typeof result?.stateSessionId === "string") savedRootSessions.add(result.stateSessionId);
 			return { code, stdout, stderr, result };
 		},
 		async close() {

@@ -1,1 +1,1 @@
-List or find files within permitted directories.
+Find permitted local files using a file-name glob in pattern or glob, such as **/*.ts. Respect gitignore by default; hidden controls dotfiles. Results include complete/truncated, skipped counts and nextOffset for continuation. Skipped content or limits do not prove a path is absent. File changes between requests can change paging results.

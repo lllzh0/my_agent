@@ -64,6 +64,7 @@ import {
 	prompt,
 	sanitizeText,
 	setProjectDir,
+	untilAborted,
 } from "@oh-my-pi/pi-utils";
 import chalk from "@oh-my-pi/pi-utils/chalk";
 import { pickTableChart } from "../auto-graph/planner";
@@ -1516,7 +1517,7 @@ export class InteractiveMode implements InteractiveModeContext {
 	#cleanupUnsubscribe?: () => void;
 	#signalTeardown?: SessionTeardown;
 	readonly #version: string;
-	#resumeCommand: string | false | undefined;
+	#resumeCommand: string | false | (() => string | false | undefined) | undefined;
 	#slashCommandCatalog: readonly SlashCommand[] | undefined;
 	readonly #startupChangelog: StartupChangelogSelection | undefined;
 	/** Header components below the config warnings + welcome, retained so a live config-warning change can rebuild the header (#10048). */
@@ -2835,20 +2836,27 @@ export class InteractiveMode implements InteractiveModeContext {
 		return true;
 	}
 
-	async getUserInput(): Promise<SubmittedUserInput> {
+	async getUserInput(signal?: AbortSignal): Promise<SubmittedUserInput> {
+		signal?.throwIfAborted();
 		if (this.session.getGoalModeState()?.mode === "exiting") {
 			await this.#exitGoalMode({ reason: "completed", silent: true });
 		}
+		signal?.throwIfAborted();
 		const { promise, resolve } = Promise.withResolvers<SubmittedUserInput>();
-		this.onInputCallback = input => {
+		const onInput = (input: SubmittedUserInput) => {
 			this.onInputCallback = undefined;
 			resolve(input);
 		};
+		this.onInputCallback = onInput;
 		this.#scheduleLoopAutoSubmit();
 		this.#scheduleGoalContinuation();
 
 		using _ = new EventLoopKeepalive();
-		return await promise;
+		try {
+			return signal ? await untilAborted(signal, () => promise) : await promise;
+		} finally {
+			if (this.onInputCallback === onInput) this.onInputCallback = undefined;
+		}
 	}
 
 	#scheduleLoopAutoSubmit(): void {
@@ -5235,7 +5243,9 @@ export class InteractiveMode implements InteractiveModeContext {
 		reason?: "completed" | "paused" | "dropped";
 	}): Promise<void> {
 		const previousTools = this.#goalModePreviousTools;
-		if (this.goalModeEnabled && previousTools) {
+		// goal_updated can clear the enabled flag before this exit runs.
+		// The saved tool set still belongs to the goal being retired.
+		if (previousTools) {
 			await this.session.setActiveToolsByName(previousTools);
 		}
 		const currentState = this.session.getGoalModeState();
@@ -6182,8 +6192,8 @@ export class InteractiveMode implements InteractiveModeContext {
 		const trimmed = rawBudget.trim().toLowerCase();
 		let nextBudget: number | undefined;
 		if (trimmed !== "off") {
-			const parsed = Number.parseInt(trimmed, 10);
-			if (!Number.isInteger(parsed) || parsed <= 0) {
+			const parsed = Number(trimmed);
+			if (!/^[1-9]\d*$/.test(trimmed) || !Number.isSafeInteger(parsed)) {
 				this.showError("Goal budget must be a positive integer or `off`.");
 				return;
 			}
@@ -7005,10 +7015,12 @@ export class InteractiveMode implements InteractiveModeContext {
 		// durable storage — `--resume <id>` fails on a never-written file (see
 		// #resumableSessionId).
 		const sessionId = this.#resumableSessionId();
-		if (sessionId && this.#resumeCommand !== false) {
+		const customResumeCommand =
+			typeof this.#resumeCommand === "function" ? this.#resumeCommand() : this.#resumeCommand;
+		if (sessionId && customResumeCommand !== false) {
 			// Command on its own line so triple-click selects just the command (#11001).
 			process.stderr.write(
-				`\n${chalk.dim("Resume this session with")}\n${chalk.dim(this.#resumeCommand ?? resumeCommand(sessionId))}\n`,
+				`\n${chalk.dim("Resume this session with")}\n${chalk.dim(customResumeCommand ?? resumeCommand(sessionId))}\n`,
 			);
 		}
 
@@ -8148,8 +8160,8 @@ export class InteractiveMode implements InteractiveModeContext {
 		void this.#selectorController.showSessionSelector(source);
 	}
 
-	async handleResumeSession(sessionPath: string): Promise<void> {
-		await this.#selectorController.handleResumeSession(sessionPath);
+	async handleResumeSession(sessionPath: string, options?: { keepModel?: boolean }): Promise<void> {
+		await this.#selectorController.handleResumeSession(sessionPath, options);
 	}
 
 	handleSessionDeleteCommand(): Promise<void> {

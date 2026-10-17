@@ -7,6 +7,7 @@ import type { Research } from "../research/research";
 import type { Supervisor } from "../processes/supervisor";
 import type { Sandbox } from "../processes/sandbox";
 import type { ManagedMcp } from "../mcp/manager";
+import type { ProductSessions } from "./sessions";
 
 export interface RunState {
 	home: string;
@@ -24,4 +25,5 @@ export interface RunState {
 	sandbox: Sandbox;
 	mcp: ManagedMcp;
 	turn: string;
+	sessions?: ProductSessions;
 }

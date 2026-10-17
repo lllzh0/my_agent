@@ -5,7 +5,7 @@ import * as path from "node:path";
 const { join } = path;
 import * as fs from "node:fs/promises";
 const { mkdir, realpath } = fs;
-import type { ExecutionBackend } from "./supervisor.ts";
+import type { ExecutionBackend, ExecutionScope } from "./supervisor.ts";
 import { protectMacOSCommand } from "./seatbelt";
 
 export class Sandbox implements ExecutionBackend {
@@ -14,8 +14,13 @@ export class Sandbox implements ExecutionBackend {
 	readonly allowedDomains: string[];
 	readonly readRoots: string[];
 	readonly protectedHome: string;
+	readonly writeRoots: string[];
+	fullAccess = false;
 	#ready = false;
-	status = "尚未初始化";
+	#status = "尚未初始化";
+	get status(): string {
+		return this.fullAccess ? "已关闭（完整授权）" : this.#status;
+	}
 	#scratch = "";
 	constructor(
 		workspace: string,
@@ -23,14 +28,17 @@ export class Sandbox implements ExecutionBackend {
 		allowedDomains: string[],
 		readRoots: string[] = [],
 		protectedHome = home,
+		writeRoots: string[] = [],
 	) {
 		this.workspace = workspace;
 		this.home = home;
 		this.allowedDomains = allowedDomains;
 		this.readRoots = readRoots;
 		this.protectedHome = protectedHome;
+		this.writeRoots = writeRoots;
 	}
-	async wrap(command: string, signal?: AbortSignal): Promise<string> {
+	async wrap(command: string, signal?: AbortSignal, scope: ExecutionScope = {}): Promise<string> {
+		if (this.fullAccess) return command;
 		if (!this.#ready) {
 			if (process.platform !== "darwin") throw new Error("首版命令隔离仅支持 macOS；命令没有执行");
 			const dependencies = SandboxManager.checkDependencies();
@@ -62,7 +70,11 @@ export class Sandbox implements ExecutionBackend {
 								scratch,
 								...(await Promise.all(this.readRoots.map(path => realpath(path)))),
 							],
-							allowWrite: [workspace, scratch],
+							allowWrite: [
+								workspace,
+								scratch,
+								...(await Promise.all(this.writeRoots.map(path => realpath(path)))),
+							],
 							denyWrite: [
 								join(workspace, ".git"),
 								join(workspace, ".agents"),
@@ -78,28 +90,38 @@ export class Sandbox implements ExecutionBackend {
 					false,
 				);
 				this.#ready = true;
-				this.status = "已启用（macOS）";
+				this.#status = "已启用（macOS）";
 			} catch (error) {
-				this.status = "不可用";
+				this.#status = "不可用";
 				throw new Error(`沙箱初始化失败；拒绝执行：${error instanceof Error ? error.message : String(error)}`);
 			}
 		}
 		// Runtime 0.0.50 overrides TMPDIR with /tmp/claude without creating it.
 		// Set the owned temporary path inside the sandbox, after its environment setup.
 		const temporary = `'${this.#scratch.replace(/'/g, `'\\''`)}'`;
+		const gitDirectory = join(await realpath(this.workspace), ".git");
 		const wrapped = await SandboxManager.wrapWithSandbox(
 			`export TMPDIR=${temporary}; ${command}`,
 			"/bin/bash",
-			undefined,
+			scope.gitWrite
+				? {
+						filesystem: {
+							...SandboxManager.getConfig()!.filesystem,
+							denyWrite: SandboxManager.getConfig()!.filesystem.denyWrite.filter(
+								value => value !== gitDirectory,
+							),
+						},
+					}
+				: undefined,
 			signal,
 		);
-		return protectMacOSCommand(wrapped, await realpath(this.protectedHome), this.#scratch);
+		return protectMacOSCommand(wrapped, await realpath(this.protectedHome), this.#scratch, scope.gitWrite);
 	}
 	async close(): Promise<void> {
 		if (this.#ready) {
 			await SandboxManager.reset();
 			this.#ready = false;
-			this.status = "已停止";
+			this.#status = "已停止";
 		}
 	}
 }

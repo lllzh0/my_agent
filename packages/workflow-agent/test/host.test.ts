@@ -46,6 +46,23 @@ test("queued native writes and edits stop when plan mode begins after approval",
 	}
 }, 30000);
 
+test("file tools reject a revoked authorization before recording or writing any content", async () => {
+	const f = await fixture();
+	try {
+		const run = await f.run({ action: "revoked-files" });
+		expect(run.code, run.stderr).toBe(0);
+		expect(run.result.actionResult).toHaveLength(3);
+		for (const item of run.result.actionResult) expect(item).toMatch(/状态|变更/);
+		expect(await Bun.file(path.join(f.cwd, "created.txt")).exists()).toBe(false);
+		expect(await Bun.file(path.join(f.cwd, "report.md")).exists()).toBe(false);
+		expect(await Bun.file(path.join(f.cwd, "existing.txt")).text()).toBe("ORIGINAL");
+		expect(run.result.changes).toHaveLength(0);
+		expect(f.requests).toHaveLength(0);
+	} finally {
+		await f.close();
+	}
+}, 30000);
+
 test("resuming a session owned by another live process fails before tools run and remains resumable after release", async () => {
 	const f = await fixture();
 	let owner: Promise<unknown> | undefined;
@@ -121,6 +138,28 @@ test("actual OMP request contains selected resources and cannot discover project
 		expect(await Bun.file(effect).exists()).toBe(false);
 		expect(run.result.tools).toContain("web_search");
 		for (const name of ["eval", "task", "browser", "python", "xdev"]) expect(run.result.tools).not.toContain(name);
+	} finally {
+		await f.close();
+	}
+}, 30000);
+
+test("single-agent host sends core tools without team tools and creates no collaboration database", async () => {
+	const f = await fixture();
+	try {
+		f.callTool("write", { path: "single-agent.txt", content: "CORE_WRITE_WORKS" });
+		const run = await f.run({ approve: true });
+		expect(run.code, run.stderr).toBe(0);
+		expect(await Bun.file(path.join(f.cwd, "single-agent.txt")).text()).toBe("CORE_WRITE_WORKS");
+		expect(run.result.changes).toHaveLength(1);
+		expect(f.requests.length).toBeGreaterThanOrEqual(2);
+		for (const request of f.requests) {
+			const tools = (request.tools ?? []).map(tool => tool.function.name);
+			for (const name of ["read", "write", "edit", "bash", "grep", "find", "web_search"])
+				expect(tools).toContain(name);
+			expect(tools.filter(name => name.startsWith("team_"))).toEqual([]);
+		}
+		const files = await fs.readdir(run.result.stateDir, { recursive: true });
+		expect(files.filter(file => file.includes("collaboration"))).toEqual([]);
 	} finally {
 		await f.close();
 	}

@@ -1,11 +1,9 @@
 import * as fs from "node:fs/promises";
-const { readFile, lstat, unlink, writeFile, chmod, mkdir } = fs;
 import * as path from "node:path";
-const { join, dirname } = path;
-import { randomUUID } from "node:crypto";
-import { atomicJson, readJson } from "../storage.ts";
-import { contained, canonicalPath } from "../policy/policy.ts";
 import { createTwoFilesPatch } from "diff";
+import { atomicJson } from "../storage.ts";
+import { contained, canonicalPath } from "../policy/policy.ts";
+import { JournalStore, type JournalStats } from "./store.ts";
 
 export interface Change {
 	id: string;
@@ -17,33 +15,99 @@ export interface Change {
 	at: string;
 	restored: boolean;
 }
+
+/** Receives a canonical absolute path. Throw to reject the current operation. */
+export type JournalPathValidator = (canonicalPath: string) => void | Promise<void>;
+
 export class ChangeJournal {
 	readonly home: string;
 	readonly workspace: string;
-	#changes: Change[] = [];
+	#validatePath?: JournalPathValidator;
+	#store?: JournalStore;
 	#queue: Promise<unknown> = Promise.resolve();
-	constructor(home: string, workspace: string) {
+	#closed = false;
+	#closing?: Promise<void>;
+
+	constructor(home: string, workspace: string, validatePath?: JournalPathValidator) {
 		this.home = home;
 		this.workspace = workspace;
+		this.#validatePath = validatePath;
 	}
+
+	#assertOpen(): void {
+		if (this.#closed) throw new Error("修改记录已经关闭");
+	}
+
+	#enqueue<T>(operation: () => Promise<T>): Promise<T> {
+		this.#assertOpen();
+		const run = this.#queue.then(operation);
+		this.#queue = run.catch(() => undefined);
+		return run;
+	}
+
+	async #ready(): Promise<JournalStore> {
+		this.#store ??= await JournalStore.open(this.home);
+		return this.#store;
+	}
+
 	async load(): Promise<void> {
-		const value = await readJson(join(this.home, "changes.json"));
-		if (Array.isArray(value)) this.#changes = value as Change[];
+		await this.#enqueue(async () => {
+			await this.#ready();
+		});
 	}
+
 	list(): Change[] {
-		return this.#changes.map(x => ({ ...x }));
+		this.#assertOpen();
+		return this.#store?.list() ?? [];
 	}
+
+	get(id: string): Change | undefined {
+		this.#assertOpen();
+		return this.#store?.find(id);
+	}
+
+	latestTurn(): Change[] {
+		this.#assertOpen();
+		return this.#store?.latestTurn() ?? [];
+	}
+
 	diff(id: string): string {
-		const x = this.#changes.find(x => x.id === id);
-		if (!x) throw new Error("修改记录不存在");
-		return createTwoFilesPatch(x.path, x.path, x.before ?? "", x.after ?? "", "before", "after");
+		this.#assertOpen();
+		const change = this.#store?.find(id);
+		if (!change) throw new Error("修改记录不存在");
+		return createTwoFilesPatch(change.path, change.path, change.before ?? "", change.after ?? "", "before", "after");
 	}
-	async #text(path: string): Promise<string | null> {
+
+	async stats(): Promise<JournalStats> {
+		return this.#enqueue(async () => (await this.#ready()).stats());
+	}
+
+	close(): Promise<void> {
+		if (this.#closing) return this.#closing;
+		this.#closed = true;
+		this.#closing = this.#queue.then(() => {
+			this.#store?.close();
+			this.#store = undefined;
+		});
+		this.#queue = this.#closing.catch(() => undefined);
+		return this.#closing;
+	}
+
+	async #validatedPath(target: string, restoring = false): Promise<string> {
+		const canonical = await canonicalPath(target);
+		if (restoring && canonical !== target) throw new Error("恢复路径发生变化");
+		if (this.#validatePath) await this.#validatePath(canonical);
+		else if (!contained(await canonicalPath(this.workspace), canonical))
+			throw new Error(restoring ? "恢复路径超出工作区" : "修改记录仅覆盖工作区");
+		return canonical;
+	}
+
+	async #text(target: string): Promise<string | null> {
 		try {
-			const stat = await lstat(path);
+			const stat = await fs.lstat(target);
 			if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink > 1 || stat.size > 1_000_000)
 				throw new Error("恢复只支持 1MB 以下的普通文本文件");
-			const bytes = await readFile(path);
+			const bytes = await fs.readFile(target);
 			if (bytes.includes(0)) throw new Error("二进制文件不进入文本修改记录");
 			return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
 		} catch (error) {
@@ -51,100 +115,85 @@ export class ChangeJournal {
 			throw error;
 		}
 	}
-	async #persist(): Promise<void> {
-		await atomicJson(join(this.home, "changes.json"), this.#changes);
-	}
-	async capture<T>(turn: string, path: string, operation: () => Promise<T>): Promise<T> {
-		const run = this.#queue.then(async () => {
-			const retained = this.#changes.reduce(
-				(bytes, item) => bytes + Buffer.byteLength(item.before ?? "") + Buffer.byteLength(item.after ?? ""),
-				0,
-			);
-			if (this.#changes.length >= 100 || retained > 18_000_000)
-				throw new Error("本会话修改快照达到保留上限；请保存现有记录并新开会话");
-			const canonical = await canonicalPath(path);
-			if (!contained(await canonicalPath(this.workspace), canonical)) throw new Error("修改记录仅覆盖工作区");
-			path = canonical;
-			const before = await this.#text(path);
-			const mode = before === null ? 0o644 : (await lstat(path)).mode & 0o777;
+
+	async capture<T>(turn: string, target: string, operation: () => Promise<T>): Promise<T> {
+		return this.#enqueue(async () => {
+			const store = await this.#ready();
+			const canonical = await this.#validatedPath(target);
+			const before = await this.#text(canonical);
+			const mode = before === null ? 0o644 : (await fs.lstat(canonical)).mode & 0o777;
 			try {
 				return await operation();
 			} finally {
-				const after = await this.#text(path);
-				if (before !== after) {
-					this.#changes.push({
-						id: randomUUID(),
+				const after = await this.#text(canonical);
+				if (before !== after)
+					store.append({
+						id: crypto.randomUUID(),
 						turn,
-						path,
+						path: canonical,
 						before,
 						after,
 						mode,
 						at: new Date().toISOString(),
 						restored: false,
 					});
-					await this.#persist();
-				}
 			}
 		});
-		this.#queue = run.catch(() => undefined);
-		return run;
 	}
+
 	async restore(id: string): Promise<void> {
 		await this.restoreMany([id]);
 	}
+
 	async restoreMany(
 		ids: string[],
 		validation?: { prepare: () => Promise<void>; beforeWrite: () => void },
 	): Promise<void> {
-		const run = this.#queue.then(async () => {
+		const requested = [...ids];
+		await this.#enqueue(async () => {
+			const store = await this.#ready();
 			await validation?.prepare();
-			const selected = this.#changes.filter(x => ids.includes(x.id) && !x.restored);
-			if (!ids.length || new Set(ids).size !== ids.length || selected.length !== ids.length)
+			if (!requested.length || new Set(requested).size !== requested.length)
 				throw new Error("没有可恢复的完整修改记录");
+			const selected = store.select(requested);
+			if (selected.length !== requested.length) throw new Error("没有可恢复的完整修改记录");
 			const groups = new Map<string, Change[]>();
 			for (const change of selected) {
 				const items = groups.get(change.path) ?? [];
 				items.push(change);
 				groups.set(change.path, items);
 			}
-			for (const [path, changes] of groups) {
-				const canonical = await canonicalPath(path);
-				if (!contained(await canonicalPath(this.workspace), canonical) || canonical !== path)
-					throw new Error("恢复路径发生变化或超出工作区");
-				if ((await this.#text(path)) !== changes.at(-1)!.after)
-					throw new Error(`恢复冲突：${path} 已有新的修改，拒绝覆盖`);
+			for (const [target, changes] of groups) {
+				await this.#validatedPath(target, true);
+				if ((await this.#text(target)) !== changes.at(-1)!.after)
+					throw new Error(`恢复冲突：${target} 已有新的修改，拒绝覆盖`);
 				for (let index = 1; index < changes.length; index++)
 					if (changes[index].before !== changes[index - 1].after)
 						throw new Error("恢复冲突：选中的修改之间存在未包含的文件变更");
 			}
-			await atomicJson(join(this.home, "restore-backup.json"), selected);
+			await atomicJson(path.join(this.home, "restore-backup.json"), selected);
 			const restored: string[] = [];
 			try {
-				for (const [path, changes] of groups) {
+				for (const [target, changes] of groups) {
 					await validation?.prepare();
+					await this.#validatedPath(target, true);
 					const before = changes[0].before;
-					if ((await this.#text(path)) !== changes.at(-1)!.after)
-						throw new Error(`恢复冲突：预览后 ${path} 发生变化`);
+					if ((await this.#text(target)) !== changes.at(-1)!.after)
+						throw new Error(`恢复冲突：预览后 ${target} 发生变化`);
 					validation?.beforeWrite();
-					if (before === null) await unlink(path);
+					if (before === null) await fs.unlink(target);
 					else {
-						await mkdir(dirname(path), { recursive: true });
-						validation?.beforeWrite();
-						await writeFile(path, before);
-						await chmod(path, changes[0].mode);
+						await Bun.write(target, before);
+						await fs.chmod(target, changes[0].mode);
 					}
-					for (const change of changes) change.restored = true;
-					restored.push(path);
-					await this.#persist();
+					restored.push(target);
+					store.markRestored(changes.map(change => change.id));
 				}
 			} catch (error) {
-				await this.#persist();
 				throw new Error(
-					`${String(error)}；已恢复：${restored.join(", ") || "无"}；其他文件保持现状，临时备份保留在 ${this.home}`,
+					`${String(error)}；已恢复：${restored.join(", ") || "无"}；其他文件未继续处理，临时备份保留在 ${this.home}`,
 				);
 			}
 		});
-		this.#queue = run.catch(() => undefined);
-		await run;
 	}
 }

@@ -91,8 +91,8 @@ export interface InteractiveModeInitOptions {
 	autoStartCollab?: boolean;
 	/** Embedded hosts may supply bindings without loading native keybinding files. */
 	keybindings?: KeybindingsManager;
-	/** Embedded host's resumable command, or false to suppress the native CLI hint. */
-	resumeCommand?: string | false;
+	/** Embedded host's resumable command, optionally resolved at exit after session switches; false suppresses the hint. */
+	resumeCommand?: string | false | (() => string | false | undefined);
 	/** Visible commands owned by an embedded host. Execution policy remains the host's responsibility. */
 	slashCommandCatalog?: readonly SlashCommand[];
 }

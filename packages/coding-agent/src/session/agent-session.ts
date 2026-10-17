@@ -1081,12 +1081,13 @@ export class AgentSession implements SettingsScope {
 	readonly #loopGuards: LoopGuards;
 	#promptInFlightCount = 0;
 	#abortInProgress = false;
-	/** Submissions accepted by prompt()/promptCustomMessage()/sendCustomMessage() that have not
+	/** Prompt, message, and queue submissions that have not
 	 *  yet dispatched a turn, queued, or bailed. Preprocessing (manual-compaction wait, slash
 	 *  commands, image normalization, vision description) runs before #promptInFlightCount is
 	 *  incremented, so `isStreaming` alone cannot tell a host that a submission is admitted. */
 	#admittedSubmissionCount = 0;
 	#admittedSubmissionsSettled: PromiseWithResolvers<void> | undefined;
+	#submissionGuard: (() => void) | undefined;
 	// Wire-level agent_end emission deferred until #promptInFlightCount drops to 0.
 	// Internal extension hooks and post-emit work (auto-retry, auto-compaction, todo
 	// checks in #handleAgentEvent) still fire on the original schedule — only the
@@ -2998,6 +2999,11 @@ export class AgentSession implements SettingsScope {
 		return this.#admittedSubmissionCount > 0;
 	}
 
+	/** Let an embedded host reject new submissions while its own session state is transitioning. */
+	setSubmissionGuard(guard: (() => void) | undefined): void {
+		this.#submissionGuard = guard;
+	}
+
 	/** Resolves once every currently admitted submission has dispatched, queued, or bailed. */
 	waitForAdmittedSubmissions(): Promise<void> {
 		if (this.#admittedSubmissionCount === 0) return Promise.resolve();
@@ -3006,6 +3012,7 @@ export class AgentSession implements SettingsScope {
 	}
 
 	async #admitSubmission<T>(work: () => Promise<T>): Promise<T> {
+		this.#submissionGuard?.();
 		this.#admittedSubmissionCount++;
 		try {
 			return await work();
@@ -8226,7 +8233,13 @@ export class AgentSession implements SettingsScope {
 	/**
 	 * Queue a steering message to interrupt the agent mid-run.
 	 */
-	async steer(text: string, images?: ImageContent[], options?: SteerOptions): Promise<void> {
+	steer(text: string, images?: ImageContent[], options?: SteerOptions): Promise<void> {
+		return this.#submissionGuard
+			? this.#admitSubmission(() => this.#steer(text, images, options))
+			: this.#steer(text, images, options);
+	}
+
+	async #steer(text: string, images?: ImageContent[], options?: SteerOptions): Promise<void> {
 		if (text.startsWith("/")) {
 			this.#throwIfExtensionCommand(text);
 		}
@@ -8249,7 +8262,13 @@ export class AgentSession implements SettingsScope {
 	 * uses this to land its execution directive behind a queued user turn without
 	 * flipping advisor auto-resume.
 	 */
-	async followUp(text: string, images?: ImageContent[], options?: FollowUpOptions): Promise<void> {
+	followUp(text: string, images?: ImageContent[], options?: FollowUpOptions): Promise<void> {
+		return this.#submissionGuard
+			? this.#admitSubmission(() => this.#followUp(text, images, options))
+			: this.#followUp(text, images, options);
+	}
+
+	async #followUp(text: string, images?: ImageContent[], options?: FollowUpOptions): Promise<void> {
 		if (text.startsWith("/")) {
 			this.#throwIfExtensionCommand(text);
 		}
@@ -8915,7 +8934,13 @@ export class AgentSession implements SettingsScope {
 	 * Explicit `deliverAs` queues without starting a turn in either state; `aside` at
 	 * an idle session instead starts a turn, since there is no live run to inject into.
 	 */
-	async sendUserMessage(
+	sendUserMessage(content: string | (TextContent | ImageContent)[], options?: SendUserMessageOptions): Promise<void> {
+		return this.#submissionGuard
+			? this.#admitSubmission(() => this.#sendUserMessage(content, options))
+			: this.#sendUserMessage(content, options);
+	}
+
+	async #sendUserMessage(
 		content: string | (TextContent | ImageContent)[],
 		options?: SendUserMessageOptions,
 	): Promise<void> {
@@ -10916,7 +10941,9 @@ export class AgentSession implements SettingsScope {
 
 	/** Retry the last failed assistant turn when idle; opted-in custom notices survive the retry. */
 	retry(options?: { skipCustomTypes?: readonly string[] }): Promise<boolean> {
-		return this.#recovery.retry(options);
+		return this.#submissionGuard
+			? this.#admitSubmission(() => this.#recovery.retry(options))
+			: this.#recovery.retry(options);
 	}
 
 	/**

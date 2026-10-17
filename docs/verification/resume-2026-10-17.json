@@ -1,0 +1,43 @@
+{
+  "date": "2026-10-17",
+  "feature": "current-workspace /resume",
+  "platform": "macOS arm64",
+  "bun": "1.3.14",
+  "omp": "18.10.3",
+  "automated": {
+    "product": { "passed": 173, "skipped": 6, "failed": 0, "files": 20 },
+    "resumeSubset": { "passed": 11, "failed": 0, "includedInProduct": true },
+    "nativeSessionAndPicker": { "passed": 37, "failed": 0, "files": 6 },
+    "nativeAdmissionQueueAndRetry": { "passed": 103, "failed": 0, "files": 7 },
+    "productLintFormatTypes": "passed",
+    "codingAgentTypes": "passed",
+    "tuiTypes": "passed",
+    "changedNativeFilesLintFormat": "passed",
+    "gitDiffCheck": "passed"
+  },
+  "terminal": {
+    "mode": "real PTY with local demo service and owned temporary sessions",
+    "passed": [
+      "list current-workspace history",
+      "cancel without switching",
+      "select and render old transcript",
+      "continue conversation with preserved demo connection",
+      "reset full access to configured manual",
+      "preserve active plan mode",
+      "hide disabled delete and cross-project actions",
+      "quit with correct resumed-session command and exit code 0"
+    ],
+    "retryKeyDuringSwitch": "verified separately by real InputController void-handler subprocess regression"
+  },
+  "review": "Independent read-only review findings were reproduced with local fixtures, fixed and covered by regression tests; native default queue timing regression was also fixed and rechecked.",
+  "logsOnOriginalMachine": "../artifacts/resume-*.log and resume-tui-smoke.md",
+  "notVerified": [
+    "real model and search services",
+    "six opt-in macOS system-sandbox tests not rerun for this change",
+    "other platforms and terminal applications",
+    "disk failure, power loss and cross-machine session migration"
+  ],
+  "driverAccepted": false,
+  "committed": false,
+  "pushed": false
+}

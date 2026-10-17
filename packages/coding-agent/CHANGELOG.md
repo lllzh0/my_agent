@@ -4,6 +4,11 @@
 
 ### Added
 
+- Embedded hosts can explicitly admit the hidden native goal tool while keeping other built-in tools restricted, and cancel interactive input waits with an optional abort signal.
+- Embedded hosts can compose a per-invocation subagent model-call gate with the session's existing gates.
+- Embedded hosts can run subagents with controlled modern tools, an exact system prompt and an explicit model endpoint.
+- Embedded hosts can preserve the active model when resuming through the TUI, provide a dynamic exit resume command, and guard prompt/retry submissions during host state transitions.
+- Embedded hosts can opt into single literal command validation with the shared shell parser; default command-chain approval parsing remains unchanged.
 - Embedded hosts can supply their own slash-command autocomplete catalog without changing native command discovery or execution.
 - Embedded input routers can consume handler failures, pause timeouts during human dialogs, and observe handler cancellation.
 - Manual retries can retain selected context notices and continue through the model after context changes.
@@ -19,6 +24,10 @@
 
 ### Fixed
 
+- Unstructured subagents produce budget wrap-up reports without exposing tools even on providers that ignore tool choice, then restore the previous tool presentation and write restrictions.
+- Pausing or completing interactive goals restores the previous tool selection, and malformed goal budget numbers are rejected.
+- Deferred subagent cleanup notifications now include disposal of sessions that finish initializing after cancellation.
+- Interactive retry actions report rejected retries without an unhandled rejection or clearing the current draft.
 - Concurrent and reentrant MCP stdio shutdown callers now wait for the same process cleanup, and failed connections finish transport cleanup before returning.
 - Fixed late completion probes rewinding resumed conversations and stale history scans lowering parked subagent costs ([#15594](https://github.com/can1357/oh-my-pi/pull/15594) by [@anatoli-tsinovoy](https://github.com/anatoli-tsinovoy)).
 - Fixed `read.renderMarkdown` having no effect on plain-file reads: inline read previews now render Markdown files as formatted Markdown instead of numbered source ([#15007](https://github.com/can1357/oh-my-pi/issues/15007)).

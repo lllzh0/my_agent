@@ -26,6 +26,28 @@ function createSession(id: string, title: string, cwd: string, parentSessionPath
 const TAB = "\t";
 
 describe("SessionSelectorComponent scope toggle", () => {
+	it("offers only selection and cancel when the host has not enabled deletion or other projects", () => {
+		const selected: SessionInfo[] = [];
+		const selector = new SessionSelectorComponent(
+			[createSession("local", "Local", "/work/current")],
+			session => selected.push(session),
+			() => {},
+			() => {},
+			{ title: "Workspace sessions", scopeLabel: false },
+		);
+		try {
+			const rendered = selector.render(120).join("\n");
+			expect(rendered).not.toContain("delete");
+			expect(rendered).not.toContain("all projects");
+			selector.handleInput("\x7f");
+			selector.handleInput(TAB);
+			selector.handleInput("\n");
+			expect(selected.map(session => session.id)).toEqual(["local"]);
+		} finally {
+			selector.dispose();
+		}
+	});
+
 	it("loads the all-projects list on Tab and surfaces each session's directory", async () => {
 		const folder = [createSession("local", "Local", "/work/current")];
 		const global = [

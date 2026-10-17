@@ -1694,11 +1694,15 @@ export class InputController {
 			this.ctx.showStatus("/retry is host-only during a collab session");
 			return;
 		}
-		const didRetry = await this.ctx.viewSession.retry();
-		if (didRetry) {
-			this.ctx.editor.clearDraft();
-		} else {
-			this.ctx.showStatus("Nothing to retry");
+		try {
+			const didRetry = await this.ctx.viewSession.retry();
+			if (didRetry) {
+				this.ctx.editor.clearDraft();
+			} else {
+				this.ctx.showStatus("Nothing to retry");
+			}
+		} catch (error) {
+			this.ctx.showError(error instanceof Error ? error.message : String(error));
 		}
 	}
 

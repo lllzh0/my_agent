@@ -1,9 +1,14 @@
 import * as path from "node:path";
 
-/** Only non-credential host settings cross into managed subprocesses. */
-export function executionEnvironment(stateDir: string): Record<string, string> {
+/** Minimal by default; additional names and full inheritance require user selection. */
+export function executionEnvironment(
+	stateDir: string,
+	envNames: string[] = [],
+	fullAccess = false,
+): Record<string, string> {
 	const env: Record<string, string> = {};
-	for (const name of ["PATH", "LANG", "LC_ALL", "TMPDIR", "TERM"])
+	if (fullAccess) for (const [name, value] of Object.entries(process.env)) if (value !== undefined) env[name] = value;
+	for (const name of ["PATH", "LANG", "LC_ALL", "TMPDIR", "TERM", ...envNames])
 		if (process.env[name]) env[name] = process.env[name]!;
 	const scratch = path.join(stateDir, "scratch");
 	env.TMPDIR = scratch;

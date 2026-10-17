@@ -1,5 +1,11 @@
-import { expect, test } from "bun:test";
+import { expect, test, spyOn } from "bun:test";
+import * as fs from "node:fs/promises";
+import * as os from "node:os";
+import * as path from "node:path";
 import { fixture } from "./helpers";
+import { Policy } from "../src/policy/policy";
+import { Sandbox } from "../src/processes/sandbox";
+import { ManagedMcp } from "../src/mcp/manager";
 
 export function remoteMcp(deleteDelay = 0) {
 	const requests: { method: string; params?: { name?: string; arguments?: unknown }; authorization: string | null }[] =
@@ -74,6 +80,87 @@ export function remoteMcp(deleteDelay = 0) {
 		},
 	};
 }
+
+test("MCP permission revision changes during preparation prevent a local process from starting", async () => {
+	const root = await fs.mkdtemp(path.join(os.tmpdir(), "mcp-permission-prepare-"));
+	const policy = new Policy(root, { readRoots: [], writeRoots: [], allowNetwork: true });
+	policy.setApprovalMode("full");
+	const sandbox = new Sandbox(root, root, []);
+	sandbox.fullAccess = true;
+	const preparing = Promise.withResolvers<void>();
+	const release = Promise.withResolvers<void>();
+	const wrapped = spyOn(sandbox, "wrap").mockImplementation(async command => {
+		preparing.resolve();
+		await release.promise;
+		return command;
+	});
+	const marker = path.join(root, "not-started.txt");
+	const mcp = new ManagedMcp(
+		{ fixture: { command: "/usr/bin/touch", args: [marker] } },
+		policy,
+		sandbox,
+		root,
+		root,
+		false,
+	);
+	const pending = mcp.list("fixture").then(
+		() => undefined,
+		error => String(error),
+	);
+	try {
+		await preparing.promise;
+		policy.setApprovalMode("manual");
+		sandbox.fullAccess = false;
+		release.resolve();
+		const outcome = await pending;
+		expect(await Bun.file(marker).exists()).toBe(false);
+		expect(outcome).toMatch(/授权状态.*变更/);
+	} finally {
+		release.resolve();
+		await pending;
+		await mcp.close();
+		wrapped.mockRestore();
+		await fs.rm(root, { recursive: true, force: true });
+	}
+});
+
+test("MCP permission revision changes after call approval prevent external execution", async () => {
+	const root = await fs.mkdtemp(path.join(os.tmpdir(), "mcp-permission-call-"));
+	const remote = remoteMcp();
+	const policy = new Policy(root, { readRoots: [], writeRoots: [], allowNetwork: true });
+	policy.setApprovalMode("full");
+	const sandbox = new Sandbox(root, root, []);
+	const mcp = new ManagedMcp({ fixture: { url: remote.url } }, policy, sandbox, root, root, false);
+	const approved = Promise.withResolvers<void>();
+	const release = Promise.withResolvers<void>();
+	const authorize = policy.authorize.bind(policy);
+	const approval = spyOn(policy, "authorize").mockImplementation(async (request, signal) => {
+		await authorize(request, signal);
+		if (request.tool.startsWith("mcp-call:")) {
+			approved.resolve();
+			await release.promise;
+		}
+	});
+	try {
+		await mcp.list("fixture");
+		const pending = mcp.call("fixture", "update_record", { value: "not-sent" }).then(
+			() => undefined,
+			error => String(error),
+		);
+		await approved.promise;
+		policy.setApprovalMode("manual");
+		release.resolve();
+		const outcome = await pending;
+		expect(remote.updates).toBe(0);
+		expect(outcome).toMatch(/授权状态.*变更/);
+	} finally {
+		release.resolve();
+		await mcp.close();
+		approval.mockRestore();
+		remote.close();
+		await fs.rm(root, { recursive: true, force: true });
+	}
+});
 
 test("configured MCP servers stay cold, invalid optional entries do not block chat, and light mode has no MCP tools", async () => {
 	const f = await fixture();

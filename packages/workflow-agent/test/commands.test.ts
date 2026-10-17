@@ -1,7 +1,104 @@
 import { expect, test } from "bun:test";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
+import * as os from "node:os";
+import type { ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent/sdk";
+import { ChangeJournal } from "../src/changes/journal";
+import { Policy } from "../src/policy/policy";
+import type { RunState } from "../src/runtime/state";
+import { restoreFromCommand } from "../src/tui/commands";
 import { fixture } from "./helpers";
+
+for (const partial of [false, true])
+	test(
+		partial
+			? "undo reports a restored file outside the recent list when the next file fails"
+			: "undo reports every restored file when a turn exceeds the recent list",
+		async () => {
+			const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "undo-notification-")));
+			const cwd = path.join(root, "work");
+			await fs.mkdir(cwd);
+			const targets = Array.from({ length: 105 }, (_value, index) => path.join(cwd, `undo-${index}.txt`));
+			const journal = new ChangeJournal(path.join(root, "state"), cwd, async target => {
+				if (partial && target === targets[1] && !(await Bun.file(targets[0]).exists()))
+					throw new Error("stop after the first restored file");
+			});
+			const policy = new Policy(cwd, { readRoots: [], writeRoots: [], allowNetwork: false });
+			policy.setApprover(async () => "once");
+			const messages: string[] = [];
+			try {
+				for (const target of targets) await journal.capture("large-turn", target, () => Bun.write(target, "agent"));
+				await restoreFromCommand(
+					{ cwd, policy, journal, jobs: { hasActiveJobs: false } } as RunState,
+					{ hasUI: false, ui: { notify: () => {} } } as unknown as ExtensionContext,
+					{
+						sendMessage(message: { content: unknown }) {
+							if (typeof message.content === "string") messages.push(message.content);
+						},
+					} as ExtensionAPI,
+					journal.latestTurn(),
+					() => {},
+				);
+				expect(messages).toHaveLength(1);
+				if (partial) {
+					expect(messages[0]).toContain("undo-0.txt");
+					expect(messages[0]).not.toContain("undo-1.txt");
+					expect((await journal.stats()).pending).toBe(104);
+					expect(await Bun.file(targets[0]).exists()).toBe(false);
+					expect(await Bun.file(targets[1]).text()).toBe("agent");
+				} else {
+					for (const target of targets) expect(messages[0]).toContain(path.basename(target));
+					expect((await journal.stats()).pending).toBe(0);
+					expect(await fs.readdir(cwd)).toEqual([]);
+				}
+			} finally {
+				await journal.close();
+				await fs.rm(root, { recursive: true, force: true });
+			}
+		},
+		30000,
+	);
+
+test("permissions commands enable auto for real writes without an approving callback", async () => {
+	const f = await fixture();
+	try {
+		f.callTool("write", { path: "auto.txt", content: "AUTO_MODE_WRITE_OK" });
+		const run = await f.run({
+			action: "commands",
+			commands: ["/permissions auto", "/session"],
+			promptAfterCommands: "Create auto.txt in this project",
+		});
+		expect(run.code, run.stderr).toBe(0);
+		expect(await Bun.file(path.join(f.cwd, "auto.txt")).text()).toBe("AUTO_MODE_WRITE_OK");
+		const info = JSON.parse(run.result.displays.find((item: { title: string }) => item.title === "会话信息").text);
+		expect(info.permissions).toBe("auto");
+	} finally {
+		await f.close();
+	}
+}, 30000);
+
+test("full access is selected by a human command and is not inherited by resume", async () => {
+	const f = await fixture();
+	try {
+		const external = path.join(f.root, "outside.txt");
+		f.callTool("write", { path: external, content: "FULL_EXTERNAL_OK" });
+		const first = await f.run({
+			action: "commands",
+			commands: ["/permissions full"],
+			promptAfterCommands: "Create the selected outside file",
+		});
+		expect(first.code, first.stderr).toBe(0);
+		expect(await Bun.file(external).text()).toBe("FULL_EXTERNAL_OK");
+		const resumed = await f.run({ resume: first.result.sessionFile, action: "commands", commands: ["/session"] });
+		expect(resumed.code, resumed.stderr).toBe(0);
+		const info = JSON.parse(
+			resumed.result.displays.find((item: { title: string }) => item.title === "会话信息").text,
+		);
+		expect(info.permissions).toBe("manual");
+	} finally {
+		await f.close();
+	}
+}, 30000);
 
 test("basic information commands show product state without calling the model or enabling native subcommands", async () => {
 	const f = await fixture();

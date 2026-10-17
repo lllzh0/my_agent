@@ -1890,7 +1890,10 @@ export class SelectorController {
 		return true;
 	}
 
-	async handleResumeSession(sessionPath: string, options?: { settingsFlushed?: boolean }): Promise<boolean> {
+	async handleResumeSession(
+		sessionPath: string,
+		options?: { settingsFlushed?: boolean; keepModel?: boolean },
+	): Promise<boolean> {
 		const previousCwd = this.ctx.sessionManager.getCwd();
 		// Flush pending settings writes before switching sessions so a save
 		// failure leaves the session, process project dir, and Settings in the
@@ -1912,6 +1915,7 @@ export class SelectorController {
 		let modelFallbackWarning: string | undefined;
 		if (
 			(await this.ctx.session.switchSession(target.sessionPath, {
+				keepModel: options?.keepModel,
 				onCwdChange: async (newCwd, sourceCwd) => {
 					if (normalizePathForComparison(newCwd) === normalizePathForComparison(sourceCwd)) return true;
 					return this.ctx.applyCwdChange(newCwd);

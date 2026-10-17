@@ -15,7 +15,8 @@ export interface Config {
 		systemPrompt?: string;
 		appendSystem: string[];
 	};
-	permissions: { readRoots: string[]; writeRoots: string[]; allowNetwork: boolean };
+	permissions: { readRoots: string[]; writeRoots: string[]; allowNetwork: boolean; approval?: "manual" | "auto" };
+	execution?: { envNames: string[] };
 	search: { provider: "tavily"; apiKeyEnv: string; maxResults: number };
 	sandbox: { required: boolean; allowedDomains: string[] };
 	mcpServers: Record<string, unknown>;
@@ -69,6 +70,16 @@ export function validateConfig(input: unknown): Config {
 		)
 			throw new Error(`permissions.${key} 必须是绝对路径列表`);
 	if (typeof permissions.allowNetwork !== "boolean") throw new Error("permissions.allowNetwork 必须是布尔值");
+	if (permissions.approval !== undefined && permissions.approval !== "manual" && permissions.approval !== "auto")
+		throw new Error("permissions.approval 只能是 manual 或 auto；完整授权 full 必须由用户在当前会话显式选择");
+	if (raw.execution !== undefined) {
+		const execution = record(raw.execution, "execution");
+		if (
+			!Array.isArray(execution.envNames) ||
+			!execution.envNames.every(name => typeof name === "string" && /^[A-Z_][A-Z0-9_]*$/.test(name))
+		)
+			throw new Error("execution.envNames 必须是环境变量名称列表，不能保存变量值");
+	}
 	const search = record(raw.search, "search");
 	if (
 		search.provider !== "tavily" ||

@@ -13,8 +13,10 @@ import { toolDescriptions } from "./tool-prompts";
 import readDescription from "../prompts/tool-read.md" with { type: "text" };
 import mcpListDescription from "../prompts/tool-mcp-list.md" with { type: "text" };
 import mcpCallDescription from "../prompts/tool-mcp-call.md" with { type: "text" };
-const { readdir, readFile } = fs;
-const { join } = path;
+import sourceReadDescription from "../prompts/tool-read-source.md" with { type: "text" };
+import sourceSearchDescription from "../prompts/tool-search-source.md" with { type: "text" };
+import lsDescription from "../prompts/tool-ls.md" with { type: "text" };
+import { Search } from "../search/search";
 
 export const result = (value: unknown) => ({
 	content: [{ type: "text" as const, text: typeof value === "string" ? value : JSON.stringify(value, null, 2) }],
@@ -38,7 +40,26 @@ export function productTools(state: RunState, context: ToolSession): ToolDefinit
 			tools.push({ ...tool, loadMode: "essential" } as unknown as ToolDefinition);
 		},
 	};
-	const { policy, journal, research, jobs, workflow } = state;
+	const { policy } = state;
+	const search = new Search(policy);
+	const pendingFiles = new Map<string, { revision: number; signal?: AbortSignal }>();
+	const captureFile = <T>(
+		target: string,
+		signal: AbortSignal | undefined,
+		operation: () => Promise<T>,
+	): Promise<T> => {
+		const revision = policy.revision;
+		return state.journal.capture(state.turn, target, async () => {
+			policy.assertCurrent(revision);
+			signal?.throwIfAborted();
+			pendingFiles.set(target, { revision, signal });
+			try {
+				return await operation();
+			} finally {
+				pendingFiles.delete(target);
+			}
+		});
+	};
 	pi.registerTool({
 		name: "mcp_list",
 		label: "MCP 服务与工具",
@@ -69,6 +90,10 @@ export function productTools(state: RunState, context: ToolSession): ToolDefinit
 			if (Buffer.byteLength(content) > 1_000_000 || content.includes("\0"))
 				throw new Error("直接文件修改只支持 1MB 以下的文本内容");
 			const target = plainPath(await policy.resolvePath(plainPath(path), "write"));
+			const pending = pendingFiles.get(target);
+			if (!pending) throw new Error("文件写入缺少当前操作的批准记录");
+			policy.assertCurrent(pending.revision);
+			pending.signal?.throwIfAborted();
 			policy.checkMode({ tool: "file", kind: "write", target });
 			await Bun.write(target, content);
 		},
@@ -89,7 +114,7 @@ export function productTools(state: RunState, context: ToolSession): ToolDefinit
 		approval: "read",
 		async execute(id, input, signal, update) {
 			const path = plainPath(await policy.resolvePath(plainPath(input.path), "read"));
-			await policy.authorize({ tool: "read", kind: "read", target: path });
+			await policy.authorize({ tool: "read", kind: "read", target: path }, signal);
 			await fs.stat(path);
 			const start = input.offset ?? 1;
 			const selector =
@@ -112,13 +137,18 @@ export function productTools(state: RunState, context: ToolSession): ToolDefinit
 			if (Buffer.byteLength(input.content) > 1_000_000 || input.content.includes("\0"))
 				throw new Error("直接文件修改只支持 1MB 以下的文本内容");
 			const path = plainPath(await policy.resolvePath(plainPath(input.path), "write"));
-			await policy.authorize({
-				tool: "write",
-				kind: "write",
-				target: path,
-				parameters: { contentHash: digest(input.content), preview: input.content.slice(0, 2000) },
-			});
-			return journal.capture(state.turn, path, () => write.execute(id, { ...input, path }, signal, update));
+			const revision = policy.revision;
+			await policy.authorize(
+				{
+					tool: "write",
+					kind: "write",
+					target: path,
+					parameters: { contentHash: digest(input.content), preview: input.content.slice(0, 2000) },
+				},
+				signal,
+			);
+			policy.assertCurrent(revision);
+			return captureFile(path, signal, () => write.execute(id, { ...input, path }, signal, update));
 		},
 	});
 	pi.registerTool({
@@ -131,18 +161,23 @@ export function productTools(state: RunState, context: ToolSession): ToolDefinit
 			if (Buffer.byteLength(input.new_string) > 1_000_000 || input.new_string.includes("\0"))
 				throw new Error("直接文件修改只支持 1MB 以下的文本内容");
 			const path = plainPath(await policy.resolvePath(plainPath(input.path), "write"));
-			await policy.authorize({
-				tool: "edit",
-				kind: "write",
-				target: path,
-				parameters: {
-					editsHash: digest(JSON.stringify(input)),
-					before: input.old_string.slice(0, 1000),
-					after: input.new_string.slice(0, 1000),
-					replaceAll: input.replace_all === true,
+			const revision = policy.revision;
+			await policy.authorize(
+				{
+					tool: "edit",
+					kind: "write",
+					target: path,
+					parameters: {
+						editsHash: digest(JSON.stringify(input)),
+						before: input.old_string.slice(0, 1000),
+						after: input.new_string.slice(0, 1000),
+						replaceAll: input.replace_all === true,
+					},
 				},
-			});
-			return journal.capture(state.turn, path, () => edit.execute(id, { ...input, path }, signal, update));
+				signal,
+			);
+			policy.assertCurrent(revision);
+			return captureFile(path, signal, () => edit.execute(id, { ...input, path }, signal, update));
 		},
 	});
 	pi.registerTool({
@@ -152,85 +187,103 @@ export function productTools(state: RunState, context: ToolSession): ToolDefinit
 		parameters: Type.Object({
 			command: Type.String(),
 			background: Type.Optional(Type.Boolean()),
+			gitWrite: Type.Optional(Type.Boolean()),
 			timeout: Type.Optional(Type.Number({ minimum: 1, maximum: 1200 })),
 		}),
 		async execute(_id, input, signal) {
-			const job = await jobs.start(input.command, {
+			const job = await state.jobs.start(input.command, {
 				timeoutMs: (input.timeout ?? 120) * 1000,
 				signal: input.background ? undefined : signal,
+				startSignal: signal,
+				gitWrite: input.gitWrite,
 			});
-			return result(input.background ? job : await jobs.wait(job.id));
+			return result(input.background ? job : await state.jobs.wait(job.id));
 		},
 	});
-	const walk = async (path: string, signal?: AbortSignal): Promise<string[]> => {
-		const files: string[] = [];
-		const queue = [path];
-		while (queue.length && files.length < 2000) {
-			if (signal?.aborted) throw new Error("文件查找已取消");
-			const current = queue.shift()!;
-			for (const entry of await readdir(current, { withFileTypes: true })) {
-				if ([".git", "node_modules", ".my-agent", ".cache"].includes(entry.name) || entry.isSymbolicLink())
-					continue;
-				const target = join(current, entry.name);
-				try {
-					await policy.resolvePath(target, "read");
-				} catch {
-					continue;
-				}
-				if (entry.isDirectory()) queue.push(target);
-				else if (entry.isFile()) files.push(target);
-			}
-		}
-		return files;
+	const searchFields = {
+		path: Type.Optional(Type.String()),
+		glob: Type.Optional(Type.String()),
+		gitignore: Type.Optional(Type.Boolean()),
+		hidden: Type.Optional(Type.Boolean()),
+		offset: Type.Optional(Type.Integer({ minimum: 0 })),
+		limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 1000 })),
 	};
-	for (const name of ["grep", "find", "ls"] as const)
+	for (const name of ["grep", "find"] as const)
 		pi.registerTool({
 			name,
-			label: name === "grep" ? "搜索文件内容" : name === "find" ? "查找文件" : "目录列表",
+			label: name === "grep" ? "搜索文件内容" : "查找文件",
 			description: name === "grep" ? toolDescriptions.grep : toolDescriptions.find,
-			parameters: Type.Object({ path: Type.Optional(Type.String()), pattern: Type.Optional(Type.String()) }),
+			parameters: Type.Object({
+				...searchFields,
+				pattern: name === "grep" ? Type.String() : Type.Optional(Type.String()),
+				literal: Type.Optional(Type.Boolean()),
+				ignoreCase: Type.Optional(Type.Boolean()),
+			}),
+			approval: "read",
 			async execute(_id, input, signal) {
-				const path = await policy.resolvePath(input.path ?? ".", "read");
-				await policy.authorize({ tool: name, kind: "read", target: path });
-				if (name === "ls")
-					return result(
-						(await readdir(path, { withFileTypes: true }))
-							.filter(x => !x.name.startsWith(".env"))
-							.map(x => `${x.name}${x.isDirectory() ? "/" : ""}`)
-							.slice(0, 200),
-					);
-				const files = await walk(path, signal);
-				if (name === "find")
-					return result(files.filter(file => !input.pattern || file.includes(input.pattern)).slice(0, 100));
-				if (!input.pattern) throw new Error("grep 需要非空 pattern（字面文本）");
-				const matches: string[] = [];
-				for (const file of files.slice(0, 500)) {
-					const bytes = await readFile(file);
-					if (bytes.length > 1_000_000 || bytes.includes(0)) continue;
-					bytes
-						.toString("utf8")
-						.split("\n")
-						.forEach((line, index) => {
-							if (matches.length < 100 && line.includes(input.pattern!))
-								matches.push(`${file}:${index + 1}: ${line.slice(0, 500)}`);
-						});
-				}
-				return result(matches);
+				await policy.authorize({ tool: name, kind: "read", target: input.path ?? "." }, signal);
+				return result(
+					name === "grep"
+						? await search.grep({ ...input, pattern: input.pattern ?? "" }, signal)
+						: await search.find(input, signal),
+				);
 			},
 		});
+	pi.registerTool({
+		name: "ls",
+		label: "目录列表",
+		description: lsDescription,
+		parameters: Type.Object({
+			path: Type.Optional(Type.String()),
+			offset: Type.Optional(Type.Integer({ minimum: 0 })),
+			limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 1000 })),
+		}),
+		approval: "read",
+		async execute(_id, input, signal) {
+			const root = await policy.resolvePath(input.path ?? ".", "read");
+			await policy.authorize({ tool: "ls", kind: "read", target: root }, signal);
+			const entries: string[] = [];
+			let skipped = 0;
+			for (const entry of await fs.readdir(root, { withFileTypes: true })) {
+				signal?.throwIfAborted();
+				try {
+					await policy.resolvePath(path.join(root, entry.name), "read");
+					entries.push(entry.name + (entry.isDirectory() ? "/" : ""));
+				} catch {
+					skipped++;
+				}
+			}
+			entries.sort();
+			const offset = input.offset ?? 0;
+			const limit = input.limit ?? 200;
+			const nextOffset = offset + limit < entries.length ? offset + limit : null;
+			return result({
+				path: root,
+				entries: entries.slice(offset, offset + limit),
+				skipped,
+				complete: nextOffset === null && skipped === 0,
+				truncated: nextOffset !== null || skipped > 0,
+				nextOffset,
+				totalEntries: entries.length,
+			});
+		},
+	});
 	pi.registerTool({
 		name: "web_search",
 		label: "联网搜索",
 		description: toolDescriptions.description1,
 		parameters: Type.Object({ query: Type.String() }),
 		async execute(_id, input, signal) {
-			await policy.authorize({
-				tool: "web_search",
-				kind: "network",
-				target: "https://api.tavily.com/search",
-				parameters: { query: input.query },
-			});
-			return result(await research.search(input.query, signal));
+			await policy.authorize(
+				{
+					tool: "web_search",
+					kind: "network",
+					target: "https://api.tavily.com/search",
+					parameters: { query: input.query },
+				},
+				signal,
+			);
+			return result(await state.research.search(input.query, signal));
 		},
 	});
 	pi.registerTool({
@@ -239,13 +292,8 @@ export function productTools(state: RunState, context: ToolSession): ToolDefinit
 		description: toolDescriptions.description2,
 		parameters: Type.Object({ url: Type.String() }),
 		async execute(_id, input, signal) {
-			await policy.authorize({ tool: "web_fetch", kind: "network", target: input.url });
-			const source = await research.fetch(input.url, signal);
-			return result({
-				...source,
-				text: source.text.slice(0, 12_000),
-				pages: source.pages?.map(x => ({ ...x, text: x.text.slice(0, 500) })),
-			});
+			await policy.authorize({ tool: "web_fetch", kind: "network", target: input.url }, signal);
+			return result(await state.research.fetch(input.url, signal));
 		},
 	});
 	pi.registerTool({
@@ -255,11 +303,42 @@ export function productTools(state: RunState, context: ToolSession): ToolDefinit
 		parameters: Type.Object({ path: Type.String() }),
 		async execute(_id, input, signal) {
 			const path = await policy.resolvePath(input.path, "read");
-			await policy.authorize({ tool: "read_document", kind: "read", target: path });
-			const source = await research.document(path, signal);
-			return result({ ...source, text: source.text.slice(0, 12_000) });
+			await policy.authorize({ tool: "read_document", kind: "read", target: path }, signal);
+			return result(await state.research.document(path, signal));
 		},
 	});
+	for (const name of ["read_source", "search_source"] as const)
+		pi.registerTool({
+			name,
+			label: name === "read_source" ? "继续读取资料" : "检索已存资料",
+			description: name === "read_source" ? sourceReadDescription : sourceSearchDescription,
+			parameters: Type.Object({
+				sourceId: Type.String(),
+				query: name === "search_source" ? Type.String() : Type.Optional(Type.String()),
+				offset: Type.Optional(Type.Integer({ minimum: 1 })),
+				limit: Type.Optional(Type.Integer({ minimum: 1, maximum: name === "read_source" ? 12000 : 100 })),
+				page: Type.Optional(Type.Integer({ minimum: 1 })),
+				ignoreCase: Type.Optional(Type.Boolean()),
+			}),
+			approval: "read",
+			async execute(_id, input, signal) {
+				const options = { ...input, signal };
+				const source =
+					name === "read_source"
+						? await state.research.readSource(input.sourceId, options)
+						: await state.research.searchSource(input.sourceId, input.query ?? "", options);
+				await policy.authorize(
+					{
+						tool: name,
+						kind: "read",
+						target: source.path ?? state.cwd,
+						parameters: { sourceId: input.sourceId, offset: input.offset, page: input.page },
+					},
+					signal,
+				);
+				return result(source);
+			},
+		});
 	pi.registerTool({
 		name: "write_report",
 		label: "保存研究报告",
@@ -275,15 +354,20 @@ export function productTools(state: RunState, context: ToolSession): ToolDefinit
 			),
 		}),
 		async execute(id, input, signal, update) {
-			const content = research.report(input.claims);
+			const content = state.research.report(input.claims);
 			const path = plainPath(await policy.resolvePath(plainPath(input.path), "write"));
-			await policy.authorize({
-				tool: "write_report",
-				kind: "write",
-				target: path,
-				parameters: { contentHash: digest(content), preview: content.slice(0, 2000) },
-			});
-			return journal.capture(state.turn, path, () => write.execute(id, { path, content }, signal, update));
+			const revision = policy.revision;
+			await policy.authorize(
+				{
+					tool: "write_report",
+					kind: "write",
+					target: path,
+					parameters: { contentHash: digest(content), preview: content.slice(0, 2000) },
+				},
+				signal,
+			);
+			policy.assertCurrent(revision);
+			return captureFile(path, signal, () => write.execute(id, { path, content }, signal, update));
 		},
 	});
 	pi.registerTool({
@@ -292,8 +376,8 @@ export function productTools(state: RunState, context: ToolSession): ToolDefinit
 		description: toolDescriptions.description5,
 		parameters: Type.Object({ titles: Type.Optional(Type.Array(Type.String())) }),
 		async execute(_id, input) {
-			if (input.titles) await workflow.replace(input.titles);
-			return result(workflow.tasks);
+			if (input.titles) await state.workflow.replace(input.titles);
+			return result(state.workflow.tasks);
 		},
 	});
 	pi.registerTool({
@@ -311,8 +395,8 @@ export function productTools(state: RunState, context: ToolSession): ToolDefinit
 			evidence: Type.Optional(Type.String()),
 		}),
 		async execute(_id, input) {
-			await workflow.update(input.index, input.status, input.evidence);
-			return result(workflow.tasks);
+			await state.workflow.update(input.index, input.status, input.evidence);
+			return result(state.workflow.tasks);
 		},
 	});
 	pi.registerTool({
@@ -335,7 +419,7 @@ export function productTools(state: RunState, context: ToolSession): ToolDefinit
 		description: toolDescriptions.description8,
 		parameters: Type.Object({ id: Type.String(), cursor: Type.Optional(Type.Number()) }),
 		async execute(_id, input) {
-			return result(jobs.output(input.id, input.cursor));
+			return result(state.jobs.output(input.id, input.cursor));
 		},
 	});
 	pi.registerTool({
@@ -344,8 +428,8 @@ export function productTools(state: RunState, context: ToolSession): ToolDefinit
 		description: toolDescriptions.description9,
 		parameters: Type.Object({ id: Type.String() }),
 		async execute(_id, input) {
-			await jobs.stop(input.id);
-			return result(jobs.list());
+			await state.jobs.stop(input.id);
+			return result(state.jobs.list());
 		},
 	});
 	return tools;

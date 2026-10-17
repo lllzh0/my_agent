@@ -232,7 +232,8 @@ const SHELL_REINTERPRET_OPTION = /^(?:-[^-]*[ce]|--(?:command|eval)(?:=.*)?)$/u;
 
 /**
  * Parses the deliberately small command language eligible for compound-command
- * approval: two or more literal argv commands joined only by `&&`.
+ * approval: literal argv commands joined only by `&&`. At least two commands
+ * are required unless the caller explicitly enables a single literal command.
  *
  * Anything that needs shell interpretation beyond quote removal is rejected.
  * In particular, this excludes expansion, globbing, redirection, comments,
@@ -240,7 +241,10 @@ const SHELL_REINTERPRET_OPTION = /^(?:-[^-]*[ce]|--(?:command|eval)(?:=.*)?)$/u;
  * mutate the current shell. Rejection is a normal result: callers must retain
  * their existing approval behavior.
  */
-export function extractLiteralAndChainSegments(command: string): LiteralShellCommandSegment[] | null {
+export function extractLiteralAndChainSegments(
+	command: string,
+	options: { allowSingle?: boolean } = {},
+): LiteralShellCommandSegment[] | null {
 	for (let i = 0; i < command.length; i++) {
 		const code = command.charCodeAt(i);
 		if ((code < 0x20 && code !== 0x09) || code === 0x7f) return null;
@@ -359,7 +363,7 @@ export function extractLiteralAndChainSegments(command: string): LiteralShellCom
 		tokenStarted = true;
 	}
 
-	if (quote || !pushSegment(command.length) || segments.length < 2) return null;
+	if (quote || !pushSegment(command.length) || segments.length < (options.allowSingle ? 1 : 2)) return null;
 	return segments;
 }
 

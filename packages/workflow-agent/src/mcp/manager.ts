@@ -116,6 +116,7 @@ export class ManagedMcp {
 		}
 	}
 	async #connect(entry: Entry, signal: AbortSignal): Promise<MCPServerConnection> {
+		const revision = this.policy.revision;
 		const config = entry.config!;
 		this.#checkPolicy(config);
 		if (entry.connection?.transport.connected) return entry.connection;
@@ -124,15 +125,23 @@ export class ManagedMcp {
 		entry.status = "connecting";
 		entry.stderr = "";
 		await untilAborted(signal, () =>
-			this.policy.authorize({
-				tool: `mcp-connect:${entry.name}`,
-				kind: "external",
-				target: config.type === "http" ? config.url : config.command,
-				parameters:
-					config.type === "http"
-						? { headers: config.headers }
-						: { args: config.args ?? [], env: config.env, cwd: this.cwd, sandbox: true },
-			}),
+			this.policy.authorize(
+				{
+					tool: `mcp-connect:${entry.name}`,
+					kind: "external",
+					target: config.type === "http" ? config.url : config.command,
+					parameters:
+						config.type === "http"
+							? { headers: config.headers }
+							: {
+									args: config.args ?? [],
+									env: config.env,
+									cwd: this.cwd,
+									sandbox: this.policy.approvalMode !== "full",
+								},
+				},
+				signal,
+			),
 		);
 		signal.throwIfAborted();
 		this.#checkPolicy(config);
@@ -140,7 +149,7 @@ export class ManagedMcp {
 		if (config.type === "http") prepared = { ...config, headers: expandMcpValues(config.headers, this.#secrets) };
 		else {
 			const env = {
-				...executionEnvironment(this.stateDir),
+				...executionEnvironment(this.stateDir, [], this.policy.approvalMode === "full"),
 				HOME: path.join(this.stateDir, "scratch"),
 				...expandMcpValues(config.env, this.#secrets),
 			};
@@ -156,6 +165,7 @@ export class ManagedMcp {
 		}
 		const deadline = AbortSignal.any([signal, AbortSignal.timeout(config.timeout!)]);
 		this.#checkPolicy(config);
+		this.policy.assertCurrent(revision);
 		const connection = await connectToServer(entry.name, prepared, {
 			signal: deadline,
 			stdio: {
@@ -180,7 +190,8 @@ export class ManagedMcp {
 	}
 	#checkPolicy(config: ProductMcpConfig): void {
 		if (this.policy.mode === "plan") throw new Error("计划模式禁止 MCP 连接和调用");
-		if (config.type === "http" && !this.policy.settings.allowNetwork) throw new Error("联网已禁用，MCP 未连接");
+		if (config.type === "http" && !this.policy.settings.allowNetwork && this.policy.approvalMode !== "full")
+			throw new Error("联网已禁用，MCP 未连接");
 	}
 	async list(name?: string, signal?: AbortSignal): Promise<unknown> {
 		if (!name) return this.status();
@@ -196,18 +207,23 @@ export class ManagedMcp {
 			throw new Error("上次 MCP 连接或调用失败；请先用 mcp_list 或菜单重新连接，核实结果后再决定是否重试");
 		if (JSON.stringify(args).length > 100_000) throw new Error("MCP 参数过大，请缩小到 100KB 以内");
 		return this.#run(entry, signal, async signal => {
+			const revision = this.policy.revision;
 			const connection = await this.#connect(entry, signal);
 			if (!entry.tools?.some(item => item.name === tool)) throw new Error("工具不在此 MCP 服务当前公布的列表中");
 			await untilAborted(signal, () =>
-				this.policy.authorize({
-					tool: `mcp-call:${name}/${tool}`,
-					kind: "external",
-					target: entry.config!.type === "http" ? entry.config!.url : entry.config!.command,
-					parameters: { tool, arguments: args },
-				}),
+				this.policy.authorize(
+					{
+						tool: `mcp-call:${name}/${tool}`,
+						kind: "external",
+						target: entry.config!.type === "http" ? entry.config!.url : entry.config!.command,
+						parameters: { tool, arguments: args },
+					},
+					signal,
+				),
 			);
 			signal.throwIfAborted();
 			this.#checkPolicy(entry.config!);
+			this.policy.assertCurrent(revision);
 			entry.status = "calling";
 			try {
 				const output = await callTool(connection, tool, args, {

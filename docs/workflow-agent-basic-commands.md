@@ -1,5 +1,9 @@
 # 第一阶段：基本命令与文件撤销
 
+2026-10-17 增量：已加入 /permissions 手动、自动、完整授权，以及恢复当前工作区旧会话的 /resume（见 [会话恢复](workflow-agent-resume.md)）；记录存储及超过 100 文件的恢复通知也已更新。以下为基本命令的实现记录，当前用法与权限边界以 [P0 说明](workflow-agent-p0.md) 为准。
+
+2026-10-17 后续已复用 OMP 接入 `/goal` 和 `/btw`，具体用法、预算和权限边界见 [目标模式与旁问](workflow-agent-goal-btw.md)。
+
 日期：2026-10-16。底座 OMP 18.10.3，Bun 1.3.14，macOS arm64。本轮只补第一阶段的日常入口，没有扩展第二阶段的工作流预设。
 
 ## 已接入的命令
@@ -15,9 +19,12 @@
 | `/usage` | 本会话本地 token、估算费用，不查询账户额度或使用重置机会 |
 | `/jobs` | 查看托管命令；`output <id> [cursor]` 读日志，`stop <id>` 停止任务 |
 | `/todo`、`/mcp` | 已有产品任务进度和受控 MCP 菜单 |
+| `/goal [set\|show\|budget\|pause\|resume\|drop]` | OMP 原生目标管理、预算与自动续跑；冷恢复先暂停，需人主动恢复 |
+| `/btw [问题]` | OMP 原生旁问与独立历史，不执行工具或修改主聊天 |
 | `/plan`、`/agent-plan` | 切换计划/执行模式并清除会话批准记录 |
 | `/compact [soft] [关注内容]` | OMP 摘要压缩，拒绝 remote、snapcompact |
 | `/session [info]` | 会话信息，拒绝 delete、pin |
+| `/resume [会话ID]` | OMP 原生选择器列出当前工作区旧会话，或用完整 ID/唯一前缀恢复；聊天及产品记录一起切换 |
 | `/agent`、`/hotkeys`、`/quit`、`/q`、`/skill:名称` | 原有菜单、快捷键、退出及所选技能 |
 
 未适配的原生命令继续被拦截。OMP 默认补全不变，只有产品启动时提供自己的可选命令表。手动压缩可能调用模型，信息命令不请求模型。

@@ -784,6 +784,13 @@ export interface CreateAgentSessionOptions {
 	 * and ambient custom tools remain disabled. Default: false.
 	 */
 	allowRestrictedCustomTools?: boolean;
+	/**
+	 * Permit the native hidden goal tool inside a restricted session while
+	 * goal.enabled is true. It stays inactive until explicitly selected by the
+	 * host; other built-ins, discovered tools, and MCP remain restricted.
+	 * Default: false.
+	 */
+	allowRestrictedGoalTool?: boolean;
 
 	/** Output schema for structured completion (subagents). */
 	outputSchema?: unknown;
@@ -2203,6 +2210,7 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 	let hasSession = false;
 	let hasRegistered = false;
 	const restrictToolNames = options.restrictToolNames === true;
+	const allowGoalTool = !restrictToolNames || options.allowRestrictedGoalTool === true;
 	const enableLsp = options.enableLsp ?? !restrictToolNames;
 	const lspReadOnly = options.lspReadOnly ?? restrictToolNames;
 	// Every root owns its jobs and delivery sinks, even when another root is live.
@@ -3414,7 +3422,7 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 		for (const [name, tool] of toolRegistry) {
 			nativeToolsByName.set(name, tool);
 		}
-		if (!restrictToolNames && !toolRegistry.has("goal") && cfgGoalEnabled.get(settings)) {
+		if (allowGoalTool && !toolRegistry.has("goal") && cfgGoalEnabled.get(settings)) {
 			const goalTool = await logger.time("createTools:goal:session", HIDDEN_TOOLS.goal, toolSession);
 			if (goalTool) {
 				const wrapped = wrapToolWithMetaNotice(goalTool);
@@ -3546,7 +3554,7 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 		let goalRegistration: Promise<boolean> | undefined;
 		const ensureGoalRegistered = (): Promise<boolean> => {
 			if (toolRegistry.has("goal")) return Promise.resolve(true);
-			if (restrictToolNames || !cfgGoalEnabled.get(settings)) return Promise.resolve(false);
+			if (!allowGoalTool || !cfgGoalEnabled.get(settings)) return Promise.resolve(false);
 			goalRegistration ??= (async () => {
 				const goalTool = await logger.time("createTools:goal:session", HIDDEN_TOOLS.goal, toolSession);
 				if (!goalTool || toolRegistry.has("goal")) return toolRegistry.has("goal");

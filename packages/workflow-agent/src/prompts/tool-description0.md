@@ -1,1 +1,1 @@
-Run a sandboxed command. Background returns a task ID; use job_output to check it. Cancel does not undo side effects.
+Run a managed command under the current human-selected permission mode. Normal/auto use the sandbox; full access does not. Background returns a task ID; use job_output to check it. gitWrite requests permission for one plain git command to write repository metadata; it cannot include shell operators or substitutions. Environment names, toolchain read roots and network domains come from user configuration. Cancel does not undo side effects.

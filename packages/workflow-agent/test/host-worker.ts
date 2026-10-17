@@ -3,8 +3,11 @@ import { cfgShellPath } from "@oh-my-pi/pi-coding-agent/exec/settings";
 import { productTools } from "../src/runtime/tools";
 import * as fs from "node:fs/promises";
 import { initializeExtensions } from "@oh-my-pi/pi-coding-agent/modes/runtime-init";
+import { InputController } from "@oh-my-pi/pi-coding-agent/modes/controllers/input-controller";
+import type { InteractiveModeContext } from "@oh-my-pi/pi-coding-agent/modes/types";
 import { testSetExtensionHandlerTimeoutMs } from "@oh-my-pi/pi-coding-agent/extensibility/extensions/runner";
 import type { ExtensionUIContext } from "@oh-my-pi/pi-coding-agent/sdk";
+import type { Change } from "../src/changes/journal";
 
 const options = JSON.parse(process.argv[2]) as {
 	home: string;
@@ -16,9 +19,18 @@ const options = JSON.parse(process.argv[2]) as {
 	planOnApproval?: "connect" | "call";
 	resume?: string;
 	action?: string;
+	inputSource?: "interactive" | "extension";
 	command?: string;
 	commands?: string[];
 	promptAfterCommands?: string;
+	promptsBefore?: string[];
+	resumeSelection?: string;
+	resumeScenario?:
+		| "busy"
+		| "switch-failure"
+		| "post-switch-failure"
+		| "input-during-switch"
+		| "retry-key-during-switch";
 	undoScenario?:
 		| "normal"
 		| "conflict"
@@ -62,6 +74,7 @@ try {
 		if (options.plan) host.state.policy.mode = "plan";
 		const displays: { title: string; text: string }[] = [];
 		const notifications: string[] = [];
+		let resumePickerShown = 0;
 		const ui = host.session.extensionRunner!.getUIContext();
 		ui.editor = async (title, text) => {
 			displays.push({ title, text: text ?? "" });
@@ -70,7 +83,26 @@ try {
 		ui.notify = message => {
 			notifications.push(message);
 		};
+		if (options.resumeSelection) {
+			const interactiveUI: ExtensionUIContext = Object.create(ui);
+			interactiveUI.custom = async <T>() => {
+				resumePickerShown++;
+				return (options.resumeSelection === "cancel" ? undefined : options.resumeSelection) as T;
+			};
+			await initializeExtensions(host.session, {
+				uiContext: interactiveUI,
+				reportSendError: (_action, error) => {
+					throw error;
+				},
+				reportRuntimeError: error => {
+					throw new Error(error.error);
+				},
+			});
+		}
 		let actionResult: unknown;
+		const resumeChecks: string[] = [];
+		let closedChanges: Change[] | undefined;
+		for (const text of options.promptsBefore ?? []) await host.session.prompt(text);
 		if (options.action === "user-bash")
 			actionResult = await host.session.executeBash(options.command ?? "printf unsafe");
 		else if (options.action === "user-python")
@@ -80,16 +112,98 @@ try {
 			actionResult = await host.session.extensionRunner?.emitInput(
 				options.command ?? "/agent",
 				undefined,
-				"interactive",
+				options.inputSource ?? "interactive",
 			);
-		else if (options.action === "commands") {
+		else if (options.action === "list-sessions") actionResult = await host.state.sessions!.list();
+		else if (options.action === "dispose-during-resume") {
+			await host.session.prompt("CURRENT_SESSION_ONLY");
+			let closing: Promise<void> | undefined;
+			host.setResumeUI(async target => {
+				await host.session.switchSession(target, { keepModel: true });
+				closing = host.dispose();
+				await Bun.sleep(30);
+			});
+			await host.state.sessions!.resume(options.command!);
+			await closing;
+			await host.dispose();
+			try {
+				await host.state.journal.stats();
+				actionResult = "open";
+			} catch {
+				actionResult = "closed";
+			}
+			closedChanges = [];
+		} else if (options.action === "commands" || options.action === "submit" || options.action === "resume") {
+			if (options.action === "resume") {
+				await host.session.prompt("CURRENT_SESSION_ONLY");
+				if (options.resumeScenario === "busy") {
+					await host.session.extensionRunner!.emitInput("/permissions full", undefined, "interactive");
+					await host.state.jobs.start("sleep 30");
+				} else if (options.resumeScenario === "switch-failure")
+					host.setResumeUI(async () => {
+						host.setResumeUI(undefined);
+						throw new Error("fixture native switch failed");
+					});
+				else if (options.resumeScenario === "post-switch-failure")
+					host.setResumeUI(async target => {
+						await host.session.switchSession(target, { keepModel: true });
+						throw new Error("fixture post-switch render failed");
+					});
+				else if (options.resumeScenario === "input-during-switch")
+					host.setResumeUI(async target => {
+						await host.session.switchSession(target, { keepModel: true });
+						for (const operation of [
+							() => host.session.prompt("ATTEMPT_DURING_SWITCH"),
+							() => host.session.retry(),
+							() => host.session.steer("ATTEMPT_DURING_SWITCH"),
+							() => host.session.followUp("ATTEMPT_DURING_SWITCH"),
+							() => host.session.sendUserMessage("ATTEMPT_DURING_SWITCH", { deliverAs: "followUp" }),
+						]) {
+							try {
+								await operation();
+								resumeChecks.push("admitted");
+							} catch {
+								resumeChecks.push("blocked");
+							}
+						}
+					});
+				else if (options.resumeScenario === "retry-key-during-switch")
+					host.setResumeUI(async target => {
+						await host.session.switchSession(target, { keepModel: true });
+						const controller = new InputController({
+							viewSession: host.session,
+							editor: {
+								clearDraft() {
+									resumeChecks.push("cleared");
+								},
+							},
+							showStatus(text: string) {
+								notifications.push(text);
+							},
+							showError(text: string) {
+								notifications.push(text);
+							},
+						} as unknown as InteractiveModeContext);
+						void controller.handleRetry();
+						await Bun.sleep(30);
+					});
+			}
 			actionResult = [];
 			for (const command of options.commands ?? [])
 				(actionResult as unknown[]).push(
 					await host.session.extensionRunner!.emitInput(command, undefined, "interactive"),
 				);
 			await host.session.waitForIdle();
-			if (options.promptAfterCommands) await host.session.prompt(options.promptAfterCommands);
+			if (options.action === "submit") {
+				const input = await host.session.extensionRunner!.emitInput(
+					options.command ?? "",
+					undefined,
+					"interactive",
+				);
+				actionResult = input;
+				if (!input.handled)
+					await host.session.prompt(input.text ?? options.command ?? "", { images: input.images });
+			} else if (options.promptAfterCommands) await host.session.prompt(options.promptAfterCommands);
 		} else if (options.action === "undo") {
 			await host.session.prompt("PRODUCT_HISTORY");
 			const existing = `${options.cwd}/existing.txt`;
@@ -219,9 +333,39 @@ try {
 				.call("fixture", "update_record", { value: "never-send" })
 				.catch(error => String(error));
 			await approvalStarted.promise;
+			closedChanges = host.state.journal.list();
 			await host.dispose();
 			actionResult = await pending;
 			pendingApproval.resolve("deny");
+		} else if (options.action === "revoked-files") {
+			await Bun.write(options.cwd + "/existing.txt", "ORIGINAL");
+			const tools = productTools(host.state, {
+				cwd: host.state.cwd,
+				settings: host.session.settings,
+				hasUI: false,
+				getSessionFile: () => host.session.sessionFile ?? null,
+				getSessionSpawns: () => null,
+			});
+			const authorize = host.state.policy.authorize.bind(host.state.policy);
+			host.state.policy.authorize = async (request, signal) => {
+				await authorize(request, signal);
+				host.state.policy.setApprovalMode("manual");
+			};
+			const context = host.session.extensionRunner!.createContext();
+			actionResult = [];
+			for (const [name, input] of [
+				["write", { path: "created.txt", content: "FORBIDDEN" }],
+				["edit", { path: "existing.txt", old_string: "ORIGINAL", new_string: "FORBIDDEN" }],
+				["write_report", { path: "report.md", claims: [{ text: "An inference", sourceIds: [], inference: true }] }],
+			] as const) {
+				host.state.policy.setApprovalMode("full");
+				try {
+					await tools.find(tool => tool.name === name)!.execute("revoked", input, undefined, undefined, context);
+					(actionResult as string[]).push("unexpected write");
+				} catch (error) {
+					(actionResult as string[]).push(String(error));
+				}
+			}
 		} else if (options.action === "queued-files-plan") {
 			const queued = Promise.withResolvers<void>();
 			const release = Promise.withResolvers<void>();
@@ -308,7 +452,7 @@ try {
 				messages: host.session.messages,
 				sessionFile: host.session.sessionFile,
 				tools: host.session.getActiveToolNames(),
-				changes: host.state.journal.list(),
+				changes: closedChanges ?? host.state.journal.list(),
 				jobs: host.state.jobs.list(),
 				resources: host.state.resources.entries,
 				shellPath: cfgShellPath.get(host.session.settings) ?? null,
@@ -318,6 +462,13 @@ try {
 				displays,
 				notifications,
 				thinking: host.session.configuredThinkingLevel(),
+				userTask: host.state.policy.userTask,
+				stateSessionId: host.state.sessionId,
+				stateDir: host.state.stateDir,
+				workflow: host.state.workflow.tasks,
+				sources: closedChanges ? [] : host.state.research.sources,
+				resumePickerShown,
+				resumeChecks,
 				availableEfforts: host.session.getAvailableEffortSelectors(),
 			}),
 		);

@@ -2,9 +2,7 @@ import type { RunState } from "../runtime/state";
 import type { Change } from "./journal";
 
 export function latestFileTurn(state: Pick<RunState, "journal">): Change[] {
-	const pending = state.journal.list().filter(change => !change.restored);
-	const turn = pending.at(-1)?.turn;
-	return turn === undefined ? [] : pending.filter(change => change.turn === turn);
+	return state.journal.latestTurn();
 }
 
 /** One approval covers the selected files; recheck after approval and queue waits. */

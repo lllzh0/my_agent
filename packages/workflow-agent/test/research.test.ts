@@ -13,8 +13,9 @@ test("fetch rejects private addresses and redirect to local service before secon
 	await assert.rejects(assertPublicUrl("http://[::1]/"), /私有|本机/);
 	const home = await mkdtemp(join(tmpdir(), "agent-research-"));
 	let calls = 0;
+	let research: Research | undefined;
 	try {
-		const research = new Research(
+		research = new Research(
 			home,
 			{ apiKeyEnv: "NONEXISTENT_TEST_KEY", maxResults: 3 },
 			async () => {
@@ -27,15 +28,19 @@ test("fetch rejects private addresses and redirect to local service before secon
 		assert.equal(calls, 1);
 		assert.equal(research.sources.length, 0);
 	} finally {
+		await research?.close();
 		await rm(home, { recursive: true, force: true });
 	}
 });
 
 test("research separates search discovery from read evidence and report rejects unsupported sources", async () => {
 	const home = await mkdtemp(join(tmpdir(), "agent-sources-"));
+	const previousKey = process.env.AGENT_TEST_SEARCH;
 	process.env.AGENT_TEST_SEARCH = "test-search-credential";
+	let research: Research | undefined;
+	let restored: Research | undefined;
 	try {
-		const research = new Research(
+		research = new Research(
 			home,
 			{ apiKeyEnv: "AGENT_TEST_SEARCH", maxResults: 3 },
 			async url =>
@@ -60,32 +65,36 @@ test("research separates search discovery from read evidence and report rejects 
 		);
 		const found = await research.search("comparison");
 		assert.equal(found[0].read, false);
-		assert.throws(() => research.report([{ text: "Fact", sourceIds: [found[0].id] }]), /读取/);
+		assert.throws(() => research!.report([{ text: "Fact", sourceIds: [found[0].id] }]), /读取/);
 		const read = await research.fetch(found[0].url!);
 		assert.equal(read.read, true);
 		assert.ok(read.text.includes("Verified content"));
 		assert.ok(!read.text.includes("changePermissions"));
 		assert.ok(research.report([{ text: "Supported", sourceIds: [read.id] }]).includes("https://example.com/a"));
-		const restored = new Research(home, { apiKeyEnv: "AGENT_TEST_SEARCH", maxResults: 3 });
+		restored = new Research(home, { apiKeyEnv: "AGENT_TEST_SEARCH", maxResults: 3 });
 		await restored.load();
 		assert.equal(restored.sources.filter(x => x.read).length, 1);
 	} finally {
-		delete process.env.AGENT_TEST_SEARCH;
+		await research?.close();
+		await restored?.close();
+		if (previousKey === undefined) delete process.env.AGENT_TEST_SEARCH;
+		else process.env.AGENT_TEST_SEARCH = previousKey;
 		await rm(home, { recursive: true, force: true });
 	}
 });
 
 test("local document keeps text and does not report unknown publication date", async () => {
 	const home = await mkdtemp(join(tmpdir(), "agent-document-"));
+	const research = new Research(home, { apiKeyEnv: "UNSET_TEST_KEY", maxResults: 3 });
 	try {
 		const path = join(home, "source.md");
 		await writeFile(path, "# Original\nSource facts");
-		const research = new Research(home, { apiKeyEnv: "UNSET_TEST_KEY", maxResults: 3 });
 		const source = await research.document(path);
 		assert.equal(source.read, true);
 		assert.equal(source.publishedAt, undefined);
 		assert.ok(source.text.includes("Source facts"));
 	} finally {
+		await research.close();
 		await rm(home, { recursive: true, force: true });
 	}
 });
@@ -115,10 +124,10 @@ function samplePdf(text: string): Buffer {
 
 test("PDF evidence preserves page number and empty-text PDF is not recorded as read", async () => {
 	const home = await mkdtemp(join(tmpdir(), "agent-pdf-"));
+	const research = new Research(home, { apiKeyEnv: "UNSET_TEST_KEY", maxResults: 3 });
 	try {
 		const path = join(home, "evidence.pdf");
 		await writeFile(path, samplePdf("Original PDF evidence"));
-		const research = new Research(home, { apiKeyEnv: "UNSET_TEST_KEY", maxResults: 3 });
 		const source = await research.document(path);
 		assert.equal(source.pages?.[0].page, 1);
 		assert.ok(source.text.includes("Original PDF evidence"));
@@ -126,6 +135,7 @@ test("PDF evidence preserves page number and empty-text PDF is not recorded as r
 		await assert.rejects(research.document(path), /文本|OCR/);
 		assert.equal(research.sources.length, 1);
 	} finally {
+		await research.close();
 		await rm(home, { recursive: true, force: true });
 	}
 });

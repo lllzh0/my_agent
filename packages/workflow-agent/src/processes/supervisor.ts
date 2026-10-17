@@ -7,9 +7,14 @@ const { mkdir } = fs;
 import { atomicJson, readJson, redact } from "../storage.ts";
 import { Policy } from "../policy/policy.ts";
 import { executionEnvironment } from "./environment";
+import { looksLikeGitWrite } from "../policy/risk";
+
+export interface ExecutionScope {
+	gitWrite?: boolean;
+}
 
 export interface ExecutionBackend {
-	wrap(command: string, signal?: AbortSignal): Promise<string>;
+	wrap(command: string, signal?: AbortSignal, scope?: ExecutionScope): Promise<string>;
 	close(): Promise<void>;
 }
 export interface Job {
@@ -36,15 +41,17 @@ export class Supervisor {
 	readonly cwd: string;
 	readonly policy: Policy;
 	readonly backend: ExecutionBackend;
+	readonly envNames: string[];
 	#jobs: Job[] = [];
 	#running = new Map<string, Running>();
 	#starting = 0;
 	#closed = false;
-	constructor(home: string, cwd: string, policy: Policy, backend: ExecutionBackend) {
+	constructor(home: string, cwd: string, policy: Policy, backend: ExecutionBackend, envNames: string[] = []) {
 		this.home = home;
 		this.cwd = cwd;
 		this.policy = policy;
 		this.backend = backend;
+		this.envNames = envNames;
 	}
 	async load(): Promise<void> {
 		const value = await readJson(join(this.home, "jobs.json"));
@@ -80,7 +87,10 @@ export class Supervisor {
 			truncated: cursor < job.dropped,
 		};
 	}
-	async start(command: string, options: { timeoutMs?: number; signal?: AbortSignal } = {}): Promise<Job> {
+	async start(
+		command: string,
+		options: { timeoutMs?: number; signal?: AbortSignal; startSignal?: AbortSignal; gitWrite?: boolean } = {},
+	): Promise<Job> {
 		if (this.#closed) throw new Error("命令管理器已关闭");
 		if (!command.trim() || command.length > 16_000) throw new Error("命令为空或过长");
 		if (this.#running.size + this.#starting >= 4) throw new Error("同时最多运行 4 个后台任务");
@@ -91,26 +101,41 @@ export class Supervisor {
 			this.#starting--;
 		}
 	}
-	async #start(command: string, options: { timeoutMs?: number; signal?: AbortSignal }): Promise<Job> {
-		await this.policy.authorize({
-			tool: "bash",
-			kind: "execute",
-			target: command,
-			parameters: { timeoutMs: options.timeoutMs ?? 120_000 },
-		});
-		if (options.signal?.aborted) throw new Error("命令启动已取消");
+	async #start(
+		command: string,
+		options: { timeoutMs?: number; signal?: AbortSignal; startSignal?: AbortSignal; gitWrite?: boolean },
+	): Promise<Job> {
+		const startSignal = options.startSignal ?? options.signal;
+		if (options.gitWrite && !looksLikeGitWrite(command))
+			throw new Error("Git 写权限只接受单条 git 命令，不接受 shell 组合、重定向或替换");
+		const revision = this.policy.revision;
+		await this.policy.authorize(
+			{
+				tool: "bash",
+				kind: "execute",
+				target: command,
+				parameters: { timeoutMs: options.timeoutMs ?? 120_000, ...(options.gitWrite ? { gitWrite: true } : {}) },
+			},
+			startSignal,
+		);
+		this.policy.assertCurrent(revision);
+		startSignal?.throwIfAborted();
 		const scratch = join(this.home, "scratch");
 		await mkdir(scratch, { recursive: true });
 		if (this.#closed) throw new Error("命令管理器已关闭");
-		const wrapped = await this.backend.wrap(command, options.signal);
+		const fullAccess = this.policy.approvalMode === "full";
+		const wrapped = fullAccess
+			? command
+			: await this.backend.wrap(command, startSignal, { gitWrite: options.gitWrite });
 		if (this.#closed) {
 			// Preparation may have allocated backend resources after close() ran.
 			await this.backend.close();
 			throw new Error("命令管理器已关闭");
 		}
-		if (options.signal?.aborted) throw new Error("命令启动已取消");
-		const env = executionEnvironment(this.home);
+		startSignal?.throwIfAborted();
+		const env = executionEnvironment(this.home, this.envNames, fullAccess);
 		this.policy.checkMode({ tool: "bash", kind: "execute", target: command });
+		this.policy.assertCurrent(revision);
 		const child = spawn("/bin/bash", ["--noprofile", "--norc", "-c", wrapped], {
 			cwd: this.cwd,
 			env,

@@ -1,1 +1,1 @@
-Search literal text in bounded project files, without executing a shell.
+Search permitted local file contents with a Unicode ECMAScript-compatible regular expression; set literal=true for exact text. glob filters file paths, ignoreCase changes case handling, gitignore defaults true. Results include line numbers, searched/skipped counts, complete/truncated and nextOffset. Repeat with offset=nextOffset to continue. Skipped or shortened content is not proof of absence. File changes between requests can change paging results.
