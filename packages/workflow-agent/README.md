@@ -59,7 +59,7 @@ OpenCode Go 要求的 `x-opencode-session` 已由 OMP 自动附加：同一会�
 
 不使用 Tavily 时可以不设置 `TAVILY_API_KEY`，改用下文的 Exa MCP。内置 `web_search` 仍调用 Tavily，不会自动换后端。
 
-模型、读取范围和命令联网域名目前通过配置文件编辑，重启生效。旧 `model.authPath` 凭据文件、模型 OAuth 登录和第三方代码扩展尚未接入；遇到这类启用配置会明确拒绝启动。MCP 可通过菜单配置，单个服务配置无效只影响该服务；轻量模式不连接任何 MCP。
+模型候选、读取范围和命令联网域名通过配置文件编辑，重启生效；已配置的模型可用 `/model` 在本会话切换。旧 `model.authPath` 凭据文件、模型 OAuth 登录和第三方代码扩展尚未接入；遇到这类启用配置会明确拒绝启动。MCP 可通过菜单配置，单个服务配置无效只影响该服务；轻量模式不连接任何 MCP。
 
 ## 显式选择资源
 
@@ -87,6 +87,10 @@ OpenCode Go 要求的 `x-opencode-session` 已由 OMP 自动附加：同一会�
 | `/help` | 查看与输入补全一致的产品命令表；补全只显示已接入的命令和所选技能 |
 | `/agent` | 查看实际资源、工具、权限、研究来源、后台任务、文件差异与恢复、任务进度；配置和连接 MCP |
 | `/context`、`/tools` | 查看估算的上下文占用及实际资源、工具清单 |
+| `/model [连接key] [强度]` | 查看显式连接或切换本会话模型，成功后清除临时授权；不修改配置 |
+| `/new` | 保存旧会话并开始空白聊天，任务、来源、撤销记录独立；旧会话可通过 `/resume` 恢复 |
+| `/diff [本地基准]` | 查看暂存、未暂存及未跟踪文本差异，显示未覆盖部分，不请求模型 |
+| `/review [本地基准]` | 使用当前模型做有请求上限的只读审查，可取消，统计计入 `/usage` |
 | `/effort [强度]` | 查看当前模型支持的思考强度；仅修改本会话，不保存全局默认值 |
 | `/retry`、`/redo` | 同一个重试入口，续接上一轮失败或中断的回答；成功的回答不会重跑 |
 | `/undo` | 撤销最近一轮尚未恢复的直接文件修改；先预览，再批准，聊天记录保留 |
@@ -105,7 +109,7 @@ OpenCode Go 要求的 `x-opencode-session` 已由 OMP 自动附加：同一会�
 | `/quit`、`/q` | 关闭 MCP、清理本会话托管命令并退出，显示产品恢复命令 |
 | `--resume 会话文件` | 恢复同一配置目录、同一工作区且资源签名一致的产品会话 |
 
-新会话默认进入执行模式，授权方式默认 manual，也可在配置中选择 auto；full 仅由人通过当前启动参数或菜单/命令选择，不会写入配置或随恢复继承。`/resume` 成功后，授权按当前配置的 manual/auto 重新开始，清除会话临时许可；计划/执行模式和当前模型连接配置保持不变。退出后用 `--resume` 重启时，计划模式需重新开启。不要使用原生 `omp --resume` 恢复产品会话。模型、资源或权限配置变化后建议新开会话。
+新会话默认进入执行模式，授权方式默认 manual，也可在配置中选择 auto；full 仅由人通过当前启动参数或菜单/命令选择，不会写入配置或随恢复继承。`/resume` 成功后，授权按当前配置的 manual/auto 重新开始，清除会话临时许可；计划/执行模式和当前模型连接配置保持不变。退出后用 `--resume` 重启时，计划模式需重新开启。不要使用原生 `omp --resume` 恢复产品会话。模型、资源或权限配置变化后建议新开会话；`/new` 保留当前模型与计划/执行模式，授权按配置重置。
 
 `/resume` 复用 OMP 已有选择器和历史切换，同时切换产品任务、研究来源、文件修改及撤销记录，不自动恢复旧文件内容或启动模型。上下键选择、Enter 恢复、Esc 取消；也可输入文字搜索。列表仅来自当前配置目录和当前工作区，资源内容必须匹配；有运行中的回答、排队消息或后台任务时先停止。取消或切换前检查失败会保留当前会话。实现和验证见 [会话恢复](../../docs/workflow-agent-resume.md)。
 
@@ -121,7 +125,7 @@ OpenCode Go 要求的 `x-opencode-session` 已由 OMP 自动附加：同一会�
 
 ## 编程与研究能力
 
-当前模型工具：`read`、`write`、`edit`、`grep`、`find`、`ls`、`bash`、`job_output`、`job_stop`、`web_search`、`web_fetch`、`read_document`、`read_source`、`search_source`、`write_report`、`task_list`、`task_update`、`ask_user`、`mcp_list`、`mcp_call`。
+当前模型工具：`read`、`write`、`edit`、`grep`、`find`、`ls`、`bash`、`job_output`、`job_stop`、`web_search`、`web_fetch`、`read_document`、`read_source`、`search_source`、`write_report`、`task_list`、`task_update`、`ask_user`、`mcp_list`、`mcp_call`、`import_mcp_source`。
 
 目标模式额外启用 OMP 原生 `goal` 工具，模型仅可查看或完成当前目标；目标和预算由用户管理。旁问不执行这些工具。
 
@@ -193,3 +197,10 @@ MY_AGENT_SANDBOX_TEST=1 bun test packages/workflow-agent/test
 干净源码副本已用独立 HOME 和空 Bun 缓存跑通 `agent:prepare`、setup、doctor、diagnose、离线问答及命令恢复；删除源码副本后，独立用户目录中的配置和会话仍保留。此证据不代表独立安装包、升级迁移或真实模型任务验收。
 
 入口迁移证据见 [迁移记录](../../docs/workflow-agent-migration.md)，后续 MCP 证据见 [MCP 记录](../../docs/workflow-agent-mcp.md)，最新结果见 [本地交付与验证](../../docs/workflow-agent-delivery.md)。真实模型、Tavily、其他用户所选 MCP 的业务调用、第三方代码扩展、完整预设管理、跨平台、打包、GUI 和六项真实任务验收仍未完成。
+
+
+## 模型、新会话、差异审查和 MCP 证据
+
+本轮新增功能的配置、限制和离线验收方法见 [第一阶段日常功能](../../docs/workflow-agent-daily-use.md)。`/model` 只列出配置明确给出的连接，不读取原生登录或自动发现模型；相同 provider/id 的不同地址或密钥使用不同 `key`。未知模型必须显式声明 API、地址、上下文/输出限制和输入能力；其费用显示为未知，不能把估算为零理解为免费。
+
+`/diff` 和 `/review` 会列出凭据、链接、二进制、大文件、超出范围或上限的内容；有遗漏时不能当作完整项目审查。自动收集差异即使在 full 下也只检查工作区内安全路径。Git 过滤器不执行，重命名按删除和新增展示。`/review` 仅提供读取和搜索工具，没有命令、写入、MCP 或联网工具。

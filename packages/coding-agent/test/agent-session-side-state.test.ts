@@ -88,6 +88,27 @@ describe("one-shot side request state", () => {
 		return session;
 	}
 
+	it("checks the host submission guard before admitting a side turn", async () => {
+		let requested = false;
+		const session = createSession(() => {
+			requested = true;
+			throw new Error("must not request");
+		});
+		session.setSubmissionGuard(() => {
+			throw new Error("host transition blocked");
+		});
+		await expect(session.runEphemeralTurn({ promptText: "Blocked" })).rejects.toThrow("host transition blocked");
+		expect(requested).toBe(false);
+		expect(session.hasActiveEphemeralTurns).toBe(false);
+	});
+	it("releases side-turn admission after early validation failure", async () => {
+		const session = createSession(() => {
+			throw new Error("must not request");
+		});
+		await expect(session.runEphemeralTurn({ promptText: "Invalid", maxTokens: 0 })).rejects.toThrow("positive");
+		expect(session.hasActiveEphemeralTurns).toBe(false);
+	});
+
 	it("releases completed one-shot histories while preserving main and reusable side response chains", async () => {
 		const requests: Record<string, unknown>[] = [];
 		const fetch: FetchImpl = async (_url, init) => {
@@ -152,14 +173,18 @@ describe("one-shot side request state", () => {
 				},
 			}),
 		);
+		expect(session.hasActiveEphemeralTurns).toBe(false);
 		const pending = session.runEphemeralTurn({ promptText: "Pending question" });
 		try {
 			await entered.promise;
+			expect(session.hasActiveEphemeralTurns).toBe(true);
 			expect((await session.runEphemeralTurn({ promptText: "Fast question" })).replyText).toBe("Answer");
 			const state = session.providerSessionState.get("openai-responses:openai") as ResponsesState;
 			expect(state.chains.size).toBe(1);
+			expect(session.hasActiveEphemeralTurns).toBe(true);
 			finish.resolve();
 			expect((await pending).replyText).toBe("Answer");
+			expect(session.hasActiveEphemeralTurns).toBe(false);
 			expect(state.chains.size).toBe(0);
 		} finally {
 			finish.resolve();
@@ -333,5 +358,6 @@ describe("one-shot side request state", () => {
 		});
 		await expect(session.runEphemeralTurn({ promptText: "Question" })).rejects.toThrow("Factory failed");
 		expect(retained.size).toBe(0);
+		expect(session.hasActiveEphemeralTurns).toBe(false);
 	});
 });

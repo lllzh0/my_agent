@@ -3,11 +3,41 @@ const { join, isAbsolute } = path;
 import * as fs from "node:fs/promises";
 const { copyFile, mkdir } = fs;
 import { randomUUID } from "node:crypto";
+import type { Api, ThinkingConfig } from "@oh-my-pi/pi-ai";
+import { getModelsConfigSchemaBundle } from "@oh-my-pi/pi-coding-agent/config/models-config-schema-bundle";
+import { THINKING_EFFORTS } from "@oh-my-pi/pi-catalog/effort";
 import { atomicJson, readJson, record } from "../storage.ts";
+
+/** API-key chat transports admitted by this product (no ambient/native-login transports). */
+export const MODEL_APIS: readonly Api[] = [
+	"openai-completions",
+	"openai-responses",
+	"openrouter",
+	"azure-openai-responses",
+	"anthropic-messages",
+	"google-generative-ai",
+];
+
+export interface ModelConfig {
+	key?: string;
+	name?: string;
+	provider: string;
+	id: string;
+	apiKeyEnv: string;
+	baseUrl?: string;
+	authPath?: string;
+	api?: Api;
+	contextWindow?: number;
+	maxTokens?: number;
+	reasoning?: boolean;
+	input?: ("text" | "image")[];
+	thinking?: ThinkingConfig;
+}
 
 export interface Config {
 	version: 1;
-	model: { provider: string; id: string; apiKeyEnv: string; baseUrl?: string; authPath?: string };
+	model: ModelConfig;
+	models?: ModelConfig[];
 	resources: {
 		instructions: string[];
 		skills: string[];
@@ -34,18 +64,99 @@ export function defaultConfig(): Config {
 	};
 }
 
+export function validateModelConfig(input: unknown, label: string): ModelConfig {
+	const model = record(input, label);
+	const allowed = [
+		"key",
+		"name",
+		"provider",
+		"id",
+		"apiKeyEnv",
+		"baseUrl",
+		"authPath",
+		"api",
+		"contextWindow",
+		"maxTokens",
+		"reasoning",
+		"input",
+		"thinking",
+	];
+	if ("apiKey" in model) throw new Error(`${label}.apiKey 不允许保存真实密钥；请使用 apiKeyEnv`);
+	if (Object.keys(model).some(key => !allowed.includes(key))) throw new Error(`${label} 有不支持的模型字段`);
+	for (const key of [
+		"provider",
+		"id",
+		"apiKeyEnv",
+		...(model.key !== undefined ? ["key"] : []),
+		...(model.name !== undefined ? ["name"] : []),
+	])
+		if (typeof model[key] !== "string" || !model[key].trim()) throw new Error(`${label}.${key} 必须是非空文本`);
+	if (!/^[A-Z_][A-Z0-9_]*$/.test(String(model.apiKeyEnv))) throw new Error(`${label}.apiKeyEnv 必须是环境变量名`);
+	for (const key of ["provider", "id", "key"])
+		if (typeof model[key] === "string" && /[\s\x00-\x1f\x7f]/.test(model[key]))
+			throw new Error(`${label}.${key} 不能包含空白或控制字符`);
+	if (model.baseUrl !== undefined) {
+		if (typeof model.baseUrl !== "string" || !/^https?:\/\//.test(model.baseUrl))
+			throw new Error(`${label}.baseUrl 必须是 HTTP(S) 地址`);
+		const url = new URL(model.baseUrl);
+		if (url.username || url.password || url.search || url.hash)
+			throw new Error(`${label}.baseUrl 不能携带凭据、查询参数或片段`);
+	}
+	if (model.authPath !== undefined && (typeof model.authPath !== "string" || !isAbsolute(model.authPath)))
+		throw new Error(`${label}.authPath 必须是已选择的绝对路径`);
+	for (const key of ["contextWindow", "maxTokens"])
+		if (model[key] !== undefined && (!Number.isSafeInteger(model[key]) || Number(model[key]) < 1))
+			throw new Error(`${label}.${key} 必须是正整数`);
+	if (
+		typeof model.contextWindow === "number" &&
+		typeof model.maxTokens === "number" &&
+		model.maxTokens > model.contextWindow
+	)
+		throw new Error(`${label}.maxTokens 不能超过 contextWindow`);
+	if (model.api !== undefined && (typeof model.api !== "string" || !MODEL_APIS.includes(model.api)))
+		throw new Error(`${label}.api 必须是本入口支持的 API-key 对话接口：${MODEL_APIS.join("、")}`);
+	// Reuse the native metadata grammar; no provider-name heuristics here.
+	getModelsConfigSchemaBundle().ModelOverrideSchema.assert(
+		Object.fromEntries(
+			["reasoning", "input", "thinking"].filter(key => model[key] !== undefined).map(key => [key, model[key]]),
+		),
+	);
+	if (Array.isArray(model.input) && model.input.length === 0) throw new Error(`${label}.input 必须是非空输入能力列表`);
+	if (model.thinking !== undefined) {
+		const thinking = record(model.thinking, `${label}.thinking`);
+		const fields = ["mode", "efforts", "defaultLevel", "effortMap", "supportsDisplay", "requiresEffort"];
+		if (Object.keys(thinking).some(key => !fields.includes(key))) throw new Error(`${label}.thinking 有不支持的字段`);
+		if (
+			!Array.isArray(thinking.efforts) ||
+			!thinking.efforts.length ||
+			new Set(thinking.efforts).size !== thinking.efforts.length
+		)
+			throw new Error(`${label}.thinking.efforts 必须是非空且不重复的强度列表`);
+		const order = THINKING_EFFORTS as readonly string[];
+		if (
+			thinking.efforts.some(
+				(value, index, values) => index > 0 && order.indexOf(values[index - 1]) >= order.indexOf(value),
+			)
+		)
+			throw new Error(`${label}.thinking.efforts 必须从低到高排序`);
+		if (thinking.defaultLevel !== undefined && !thinking.efforts.includes(thinking.defaultLevel))
+			throw new Error(`${label}.thinking.defaultLevel 必须在 efforts 中`);
+		if (model.reasoning === false) throw new Error(`${label}.thinking 与 reasoning=false 冲突`);
+	}
+	return model as unknown as ModelConfig;
+}
+
 export function validateConfig(input: unknown): Config {
 	const raw = record(input, "配置");
 	if (raw.version !== 1) throw new Error("配置 version 必须为 1，拒绝自动进行未知迁移");
-	const model = record(raw.model, "model");
-	if ("apiKey" in model) throw new Error("model.apiKey 不允许保存真实密钥；请使用 apiKeyEnv");
-	for (const key of ["provider", "id", "apiKeyEnv"])
-		if (typeof model[key] !== "string") throw new Error(`model.${key} 必须是文本`);
-	if (!/^[A-Z_][A-Z0-9_]*$/.test(String(model.apiKeyEnv))) throw new Error("model.apiKeyEnv 必须是环境变量名");
-	if (model.baseUrl !== undefined && (typeof model.baseUrl !== "string" || !/^https?:\/\//.test(model.baseUrl)))
-		throw new Error("model.baseUrl 必须是 HTTP(S) 地址");
-	if (model.authPath !== undefined && (typeof model.authPath !== "string" || !isAbsolute(model.authPath)))
-		throw new Error("model.authPath 必须是已选择的绝对路径");
+	const models = [validateModelConfig(raw.model, "model")];
+	if (raw.models !== undefined) {
+		if (!Array.isArray(raw.models)) throw new Error("models 必须是模型连接列表");
+		models.push(...raw.models.map((model, index) => validateModelConfig(model, `models[${index}]`)));
+	}
+	const keys = models.map(model => model.key ?? `${model.provider}/${model.id}`);
+	if (new Set(keys).size !== keys.length)
+		throw new Error("模型连接 key 重复；相同供应商/型号的不同连接须分别指定 key");
 	const resources = record(raw.resources, "resources");
 	for (const key of ["instructions", "skills", "appendSystem"])
 		if (!Array.isArray(resources[key]) || !(resources[key] as unknown[]).every(x => typeof x === "string"))

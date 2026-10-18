@@ -1,12 +1,13 @@
 import * as path from "node:path";
 import { quote } from "shell-quote";
 import { callTool, connectToServer, disconnectServer, listTools } from "@oh-my-pi/pi-coding-agent/mcp/client";
-import type { MCPServerConnection, MCPToolDefinition } from "@oh-my-pi/pi-coding-agent/mcp/types";
+import type { MCPServerConnection, MCPToolDefinition, MCPToolCallResult } from "@oh-my-pi/pi-coding-agent/mcp/types";
 import { untilAborted } from "@oh-my-pi/pi-utils";
 import type { Policy } from "../policy/policy";
 import type { Sandbox } from "../processes/sandbox";
 import { executionEnvironment } from "../processes/environment";
-import { redact, record } from "../storage";
+import { Research } from "../research/research";
+import { digest, redact, record } from "../storage";
 import { expandMcpValues, parseMcpConfig, type ProductMcpConfig } from "./config";
 
 interface Entry {
@@ -26,6 +27,8 @@ export class ManagedMcp {
 	#entries = new Map<string, Entry>();
 	#secrets = new Set<string>();
 	#closed = false;
+	#research: Research;
+	#ownsResearch: boolean;
 	constructor(
 		configs: Record<string, unknown>,
 		readonly policy: Policy,
@@ -33,7 +36,10 @@ export class ManagedMcp {
 		readonly cwd: string,
 		readonly stateDir: string,
 		readonly light: boolean,
+		research?: Research,
 	) {
+		this.#research = research ?? new Research(stateDir, { apiKeyEnv: "UNSET_MCP_CAPTURE_KEY", maxResults: 1 });
+		this.#ownsResearch = research === undefined;
 		for (const [name, raw] of Object.entries(structuredClone(configs))) {
 			const entry: Entry = { name, status: "configured" };
 			this.#entries.set(name, entry);
@@ -58,7 +64,7 @@ export class ManagedMcp {
 		for (const secret of this.#secrets) text = text.split(secret).join("[REDACTED]");
 		return String(redact(text));
 	}
-	#output(value: unknown): unknown {
+	#output(value: unknown, bounded = true): unknown {
 		const scrub = (value: unknown): unknown => {
 			if (typeof value === "string") return this.#sanitize(value);
 			if (Array.isArray(value)) return value.map(scrub);
@@ -66,9 +72,11 @@ export class ManagedMcp {
 				return Object.fromEntries(Object.entries(value).map(([key, item]) => [this.#sanitize(key), scrub(item)]));
 			return value;
 		};
-		const sanitized = scrub(value);
+		const sanitized = scrub(redact(value));
 		const serialized = JSON.stringify(sanitized);
-		return serialized.length > 200_000 ? { truncated: true, preview: serialized.slice(0, 200_000) } : sanitized;
+		return bounded && serialized.length > 200_000
+			? { truncated: true, preview: serialized.slice(0, 200_000) }
+			: sanitized;
 	}
 	status() {
 		return [...this.#entries.values()].map(entry => ({
@@ -198,7 +206,7 @@ export class ManagedMcp {
 		const entry = this.#entry(name);
 		return this.#run(entry, signal, async signal => {
 			await this.#connect(entry, signal);
-			return this.#output({ server: name, tools: entry.tools });
+			return this.#output({ server: name, tools: entry.tools, researchTools: entry.config!.researchTools ?? {} });
 		});
 	}
 	async call(name: string, tool: string, args: Record<string, unknown>, signal?: AbortSignal): Promise<unknown> {
@@ -229,8 +237,47 @@ export class ManagedMcp {
 				const output = await callTool(connection, tool, args, {
 					signal: AbortSignal.any([signal, AbortSignal.timeout(entry.config!.timeout!)]),
 				});
+				signal.throwIfAborted();
 				entry.status = "connected";
-				return this.#output(output);
+				const sanitized = this.#output(output, false) as MCPToolCallResult;
+				// Never preserve a server-supplied ID, including on an error response.
+				const { resultId: _untrustedId, ...response } = sanitized as unknown as Record<string, unknown>;
+				if (output.isError !== undefined && output.isError !== false) return this.#output(response);
+				if (!Array.isArray(sanitized.content)) return this.#output(response);
+				const texts: string[] = [];
+				let omittedNonTextBlocks = 0;
+				for (const block of sanitized.content) {
+					if (block.type === "text" && typeof block.text === "string") texts.push(block.text);
+					else if (
+						block.type === "resource" &&
+						"text" in block.resource &&
+						typeof block.resource.text === "string"
+					)
+						texts.push(block.resource.text);
+					else omittedNonTextBlocks++;
+				}
+				if (sanitized.structuredContent) texts.push(JSON.stringify(sanitized.structuredContent));
+				try {
+					const resultId = await this.#research.captureMcpResult(
+						{
+							server: this.#sanitize(name),
+							tool: this.#sanitize(tool),
+							intent:
+								entry.config!.researchTools && Object.hasOwn(entry.config!.researchTools, tool)
+									? entry.config!.researchTools[tool]
+									: "unclassified",
+							argumentsHash: digest(JSON.stringify(this.#output(args, false))),
+							text: texts.join("\n"),
+							omittedNonTextBlocks,
+						},
+						signal,
+					);
+					return { ...record(this.#output(response), "MCP 结果"), resultId };
+				} catch (error) {
+					signal.throwIfAborted();
+					// External execution succeeded: storage failure must never invite an automatic replay.
+					return { ...record(this.#output(response), "MCP 结果"), captureError: this.#message(error) };
+				}
 			} catch (error) {
 				throw new Error(`MCP 调用未正常返回，外部执行结果可能未知，未自动重试：${this.#message(error)}`);
 			}
@@ -259,5 +306,6 @@ export class ManagedMcp {
 	async close(): Promise<void> {
 		this.#closed = true;
 		await Promise.all([...this.#entries.keys()].map(name => this.disconnect(name)));
+		if (this.#ownsResearch) await this.#research.close();
 	}
 }

@@ -53,10 +53,7 @@ export function require(dir, ...features) {
 	if (!discovered) throw vcsError("NotARepository", `not a repository: ${dir}`);
 	for (const feature of features) {
 		if (!discovered.supports(feature)) {
-			throw vcsError(
-				"Unsupported",
-				`\`${feature}\` is not supported on a ${discovered.kind()} repository`,
-			);
+			throw vcsError("Unsupported", `\`${feature}\` is not supported on a ${discovered.kind()} repository`);
 		}
 	}
 	return discovered;
@@ -69,6 +66,81 @@ export function requireGit(dir) {
 		throw vcsError("NotARepository", `not a repository: ${dir}`);
 	}
 	return repo;
+}
+
+async function readMetadataOutput(stream, maxBytes) {
+	const reader = stream.getReader();
+	const parts = [];
+	let size = 0;
+	try {
+		while (true) {
+			const { value, done } = await reader.read();
+			if (done) break;
+			size += value.byteLength;
+			if (size > maxBytes) throw new Error("Git metadata exceeded the output limit");
+			parts.push(value);
+		}
+		return Buffer.concat(parts).toString("utf8");
+	} finally {
+		reader.releaseLock();
+	}
+}
+
+/** Safe inventory for readers that must check paths before obtaining content.
+ * The ordinary native worktree diff route applies clean filters and writes
+ * objects. These two Git built-ins return only modes, object IDs and paths. */
+export async function listGitFileEntries(repo, revision, signal) {
+	if (revision !== undefined && !/^[a-f0-9]{40,64}$/.test(revision))
+		throw new Error("Git tree inventory requires a resolved object ID");
+	const operation = AbortSignal.any([AbortSignal.timeout(15_000), ...(signal ? [signal] : [])]);
+	operation.throwIfAborted();
+	const child = Bun.spawn(
+		[
+			"git",
+			"--no-optional-locks",
+			"-c",
+			"core.fsmonitor=false",
+			...(revision ? ["ls-tree", "-rz", revision] : ["ls-files", "--stage", "-z"]),
+		],
+		{ cwd: repo.info().repoRoot, stdin: "ignore", stdout: "pipe", stderr: "pipe" },
+	);
+	const abort = () => child.kill();
+	operation.addEventListener("abort", abort, { once: true });
+	try {
+		if (operation.aborted) abort();
+		const [output, error, code] = await Promise.all([
+			readMetadataOutput(child.stdout, 8_000_000),
+			readMetadataOutput(child.stderr, 64_000),
+			child.exited,
+		]);
+		operation.throwIfAborted();
+		if (code !== 0) throw new Error(`Cannot read Git metadata: ${error}`);
+		return output
+			.split("\0")
+			.filter(Boolean)
+			.map(row => {
+				const tab = row.indexOf("\t");
+				const fields = row.slice(0, tab).split(" ");
+				if (
+					tab < 0 ||
+					fields.length !== 3 ||
+					!/^[0-7]{6}$/.test(fields[0]) ||
+					!/^[a-f0-9]{40,64}$/.test(fields[revision ? 2 : 1]) ||
+					(!revision && !/^[0-3]$/.test(fields[2]))
+				)
+					throw new Error("Invalid Git metadata output");
+				return {
+					path: row.slice(tab + 1),
+					mode: fields[0],
+					oid: fields[revision ? 2 : 1],
+					stage: revision ? 0 : Number(fields[2]),
+				};
+			});
+	} finally {
+		operation.removeEventListener("abort", abort);
+		child.kill();
+		await child.exited;
+	}
 }
 
 /** Repository metadata only (cheap fs walk) — for synchronous render paths. */

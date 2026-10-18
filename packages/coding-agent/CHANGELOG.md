@@ -4,6 +4,8 @@
 
 ### Added
 
+- Embedded hosts can observe active ephemeral turns and guard their admission during model/session transitions.
+
 - Embedded hosts can explicitly admit the hidden native goal tool while keeping other built-in tools restricted, and cancel interactive input waits with an optional abort signal.
 - Embedded hosts can compose a per-invocation subagent model-call gate with the session's existing gates.
 - Embedded hosts can run subagents with controlled modern tools, an exact system prompt and an explicit model endpoint.

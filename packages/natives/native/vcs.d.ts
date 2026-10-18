@@ -57,6 +57,20 @@ export declare function require(dir: string, ...features: VcsFeature[]): VcsRepo
 /** Like {@link git}, but throws a `NotARepository` {@link VcsError}. */
 export declare function requireGit(dir: string): VcsGitRepo;
 
+/** Raw tree/index metadata only. Never runs Git status, filters or textconv.
+ * Requires Git CLI; rejects rather than falling back to worktree conversion. */
+export interface GitFileEntry {
+	path: string;
+	mode: string;
+	oid: string;
+	stage: number;
+}
+export declare function listGitFileEntries(
+	repo: VcsGitRepo,
+	revision?: string,
+	signal?: AbortSignal,
+): Promise<GitFileEntry[]>;
+
 /** Repository metadata only (cheap fs walk) — for synchronous render paths. */
 export declare function gitInfo(dir: string): VcsGitRepoInfo | null;
 

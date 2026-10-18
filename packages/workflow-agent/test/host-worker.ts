@@ -19,6 +19,8 @@ const options = JSON.parse(process.argv[2]) as {
 	planOnApproval?: "connect" | "call";
 	resume?: string;
 	action?: string;
+	modelScenario?: "pre" | "post" | "rollback" | "transition";
+	newScenario?: "switch-failure" | "post-switch-failure" | "cancelled" | "late-cancelled" | "guarded";
 	inputSource?: "interactive" | "extension";
 	command?: string;
 	commands?: string[];
@@ -103,7 +105,132 @@ try {
 		const resumeChecks: string[] = [];
 		let closedChanges: Change[] | undefined;
 		for (const text of options.promptsBefore ?? []) await host.session.prompt(text);
-		if (options.action === "user-bash")
+		if (options.action === "product-new") {
+			const source = { id: host.state.sessionId, file: host.session.sessionFile, stateDir: host.state.stateDir };
+			const checks: string[] = [];
+			const newController = new AbortController();
+			if (options.newScenario === "switch-failure")
+				host.setResumeUI(async () => {
+					throw new Error("fixture-new-switch-failed");
+				});
+			else if (options.newScenario === "late-cancelled")
+				host.setResumeUI(async target => {
+					await Bun.sleep(5);
+					newController.abort();
+					await host.session.switchSession(target, { keepModel: true });
+				});
+			else if (options.newScenario === "post-switch-failure")
+				host.setResumeUI(async target => {
+					await host.session.switchSession(target, { keepModel: true });
+					throw new Error("fixture-new-refresh-failed");
+				});
+			else if (options.newScenario === "guarded")
+				host.setResumeUI(async target => {
+					for (const operation of [
+						() => host.session.prompt("MUST_NOT_RUN_DURING_NEW"),
+						() => host.session.retry(),
+						() => host.session.steer("MUST_NOT_RUN_DURING_NEW"),
+						() => host.session.followUp("MUST_NOT_RUN_DURING_NEW"),
+						() => host.session.sendUserMessage("MUST_NOT_RUN_DURING_NEW", { deliverAs: "followUp" }),
+						() => host.state.sessions!.startNew(),
+					]) {
+						try {
+							await operation();
+							checks.push("admitted");
+						} catch {
+							checks.push("blocked");
+						}
+					}
+					await host.session.switchSession(target, { keepModel: true });
+				});
+			let error = "";
+			let result: unknown;
+			try {
+				result = await host.state.sessions!.startNew(
+					options.newScenario === "cancelled" ? AbortSignal.abort() : newController.signal,
+				);
+			} catch (failure) {
+				error = String(failure);
+			}
+			actionResult = {
+				source,
+				result,
+				error,
+				checks,
+				sessions: await host.state.sessions!.list(),
+				busy: host.state.sessions!.busy,
+			};
+			if (options.promptAfterCommands) await host.session.prompt(options.promptAfterCommands);
+		} else if (options.action === "models") {
+			const models = host.state.models!;
+			const native = host.session.setModel.bind(host.session);
+			const previousModel = host.session.model!;
+			const previousEffort = host.session.configuredThinkingLevel();
+			const previousRevision = host.state.policy.revision;
+			let attempts = 0;
+			const checks: string[] = [];
+			host.session.setModel = async (model, role, switchOptions) => {
+				attempts++;
+				if (attempts === 1 && options.modelScenario === "pre") throw new Error("fixture-before-change");
+				if (options.modelScenario === "rollback" && attempts > 1) throw new Error("fixture-rollback-failure");
+				if (attempts === 1 && options.modelScenario === "transition") {
+					for (const operation of [
+						() => host.session.prompt("MUST_NOT_SUBMIT"),
+						() => host.session.retry(),
+						() => host.session.steer("MUST_NOT_SUBMIT"),
+						() => host.session.followUp("MUST_NOT_SUBMIT"),
+						() => host.session.sendUserMessage("MUST_NOT_SUBMIT", { deliverAs: "followUp" }),
+						() => models.select("second"),
+						() => host.state.sessions!.resume("absent.jsonl"),
+					]) {
+						try {
+							await operation();
+							checks.push("admitted");
+						} catch {
+							checks.push("blocked");
+						}
+					}
+					for (const command of ["/model second", "/fresh", "/goal set forbidden", "/retry"])
+						checks.push(
+							(await host.session.extensionRunner!.emitInput(command, undefined, "interactive")).handled
+								? "blocked"
+								: "admitted",
+						);
+				}
+				const result = await native(model, role, switchOptions);
+				if (attempts === 1 && (options.modelScenario === "post" || options.modelScenario === "rollback"))
+					throw new Error("fixture-after-change");
+				return result;
+			};
+			let failure = "";
+			try {
+				await models.select("second");
+			} catch (error) {
+				failure = String(error);
+			}
+			let submissionBlocked = false;
+			try {
+				models.assertSubmissionAllowed();
+			} catch {
+				submissionBlocked = true;
+			}
+			actionResult = {
+				failure,
+				attempts,
+				checks,
+				submissionBlocked,
+				key: models.current().key,
+				baseUrl: host.session.model?.baseUrl,
+				previousBaseUrl: previousModel.baseUrl,
+				previousEffort,
+				effort: host.session.configuredThinkingLevel(),
+				revisionBefore: previousRevision,
+				revisionAfter: host.state.policy.revision,
+				credential:
+					(await models.registry.getApiKey(host.session.model!)) === "fake-local-key" ? "original" : "second",
+			};
+			if (!submissionBlocked && options.promptAfterCommands) await host.session.prompt(options.promptAfterCommands);
+		} else if (options.action === "user-bash")
 			actionResult = await host.session.executeBash(options.command ?? "printf unsafe");
 		else if (options.action === "user-python")
 			actionResult = await host.session.executePython(options.command ?? "print('unsafe')");
@@ -308,8 +435,8 @@ try {
 				);
 			await host.session.waitForIdle();
 		} else if (options.action === "restore") await host.state.journal.restore(host.state.journal.list()[0].id);
-		else if (options.action === "hold-session") {
-			await host.session.prompt("LEASE_OWNER");
+		else if (options.action === "hold-session" || options.action === "hold-blank-session") {
+			if (options.action === "hold-session") await host.session.prompt("LEASE_OWNER");
 			await Bun.write(`${options.home}/owner-ready`, "ready");
 			while (!(await Bun.file(`${options.home}/owner-release`).exists())) await Bun.sleep(10);
 		} else if (options.action === "mcp-timed-close") {
@@ -462,6 +589,7 @@ try {
 				displays,
 				notifications,
 				thinking: host.session.configuredThinkingLevel(),
+				automaticReview: host.state.policy.reviewUsage,
 				userTask: host.state.policy.userTask,
 				stateSessionId: host.state.sessionId,
 				stateDir: host.state.stateDir,

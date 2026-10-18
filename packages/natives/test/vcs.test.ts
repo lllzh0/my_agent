@@ -211,3 +211,31 @@ describe("VcsRepo", () => {
 		}
 	});
 });
+
+describe("read-only Git metadata inventory", () => {
+	test("returns index/tree identity and modes without applying worktree filters", async () => {
+		const root = await repository();
+		const file = "tab\tand newline\n.txt";
+		await writeFile(join(root, file), "unusual path\n");
+		await git(root, "add", "--", file);
+		await git(root, "update-index", "--chmod=+x", "tracked.txt");
+		await writeFile(join(root, ".gitattributes"), "*.txt filter=metadata-test\n");
+		const marker = join(root, "filter-ran");
+		await git(root, "config", "filter.metadata-test.clean", `touch '${marker}'; cat`);
+		await writeFile(join(root, "tracked.txt"), "changed worktree\n");
+		const repo = vcs.requireGit(root);
+		const entries = await vcs.listGitFileEntries(repo);
+		expect(entries.find(entry => entry.path === file)?.stage).toBe(0);
+		expect(entries.find(entry => entry.path === "tracked.txt")?.mode).toBe("100755");
+		const tree = await vcs.listGitFileEntries(repo, (await repo.headSha())!);
+		expect(tree).toHaveLength(1);
+		expect(tree[0]).toMatchObject({ path: "tracked.txt", mode: "100644", stage: 0 });
+		expect(tree[0].oid).toBe(entries.find(entry => entry.path === "tracked.txt")?.oid);
+		expect(await Bun.file(marker).exists()).toBe(false);
+	});
+	test("rejects unresolved revisions and cancelled inventory", async () => {
+		const repo = vcs.requireGit(await repository());
+		await expect(vcs.listGitFileEntries(repo, "HEAD")).rejects.toThrow("resolved object ID");
+		await expect(vcs.listGitFileEntries(repo, undefined, AbortSignal.abort())).rejects.toThrow();
+	});
+});

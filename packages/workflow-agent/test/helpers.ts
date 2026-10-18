@@ -19,7 +19,7 @@ export async function fixture(homeInsideWorkspace = false) {
 	const home = path.join(homeInsideWorkspace ? cwd : root, "home");
 	await fs.mkdir(cwd);
 	const requests: WireRequest[] = [];
-	const requestHeaders: { sessionId: string | null; userAgent: string | null }[] = [];
+	const requestHeaders: { sessionId: string | null; userAgent: string | null; authorization: string | null }[] = [];
 	let toolCall: { name: string; arguments: unknown } | undefined;
 	let toolSequence: { name: string; arguments: unknown }[] | undefined;
 	let toolPrompt: string | undefined;
@@ -38,6 +38,7 @@ export async function fixture(homeInsideWorkspace = false) {
 			requestHeaders.push({
 				sessionId: request.headers.get("x-opencode-session"),
 				userAgent: request.headers.get("user-agent"),
+				authorization: request.headers.get("authorization"),
 			});
 			const body = (await request.json()) as WireRequest;
 			requests.push(body);
@@ -210,6 +211,8 @@ export async function fixture(homeInsideWorkspace = false) {
 				planOnApproval?: "connect" | "call";
 				resume?: string;
 				action?: string;
+				modelScenario?: "pre" | "post" | "rollback" | "transition";
+				newScenario?: "switch-failure" | "post-switch-failure" | "cancelled" | "late-cancelled" | "guarded";
 				inputSource?: "interactive" | "extension";
 				command?: string;
 				commands?: string[];
@@ -250,6 +253,7 @@ export async function fixture(homeInsideWorkspace = false) {
 						HOME: os.homedir(),
 						TERM: "dumb",
 						PRODUCT_TEST_KEY: options.testKey ?? "fake-local-key",
+						PRODUCT_TEST_KEY_B: "fake-second-key",
 						PI_CONFIG_DIR: path.relative(os.homedir(), path.join(home, "omp")),
 						PI_CODING_AGENT_DIR: path.join(home, "omp/agent"),
 						PI_NATIVES_DIR: path.join(home, "natives"),

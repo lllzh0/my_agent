@@ -92,14 +92,21 @@ test("diagnostic model identifiers come only from the bundled catalog, including
 		for (const provider of ["private-token-with-no-prefix", "opencode-go"]) {
 			const config = defaultConfig();
 			config.model.provider = provider;
-			config.model.id = "/Users/private-team/project\nPRIVATE_MODEL_BODY";
-			await Bun.write(path.join(f.home, "config.json"), JSON.stringify(config));
-			const report = await diagnosticReport(f.home);
-			const output = JSON.stringify(report);
-			expect(output).not.toContain("private-token-with-no-prefix");
-			expect(output).not.toContain("/Users/private-team");
-			expect(output).not.toContain("PRIVATE_MODEL_BODY");
-			expect(report.configuration).toMatchObject({ status: "valid", model: { recognized: false } });
+			for (const id of [
+				"/Users/private-team/project-PRIVATE_MODEL_BODY",
+				"/Users/private-team/project\nPRIVATE_MODEL_BODY",
+			]) {
+				config.model.id = id;
+				await Bun.write(path.join(f.home, "config.json"), JSON.stringify(config));
+				const report = await diagnosticReport(f.home);
+				const output = JSON.stringify(report);
+				expect(output).not.toContain("private-token-with-no-prefix");
+				expect(output).not.toContain("/Users/private-team");
+				expect(output).not.toContain("PRIVATE_MODEL_BODY");
+				expect(report.configuration).toMatchObject(
+					id.includes("\n") ? { status: "invalid" } : { status: "valid", model: { recognized: false } },
+				);
+			}
 		}
 	} finally {
 		await f.close();

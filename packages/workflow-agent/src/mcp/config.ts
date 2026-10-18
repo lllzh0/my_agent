@@ -1,7 +1,10 @@
 import type { MCPHttpServerConfig, MCPStdioServerConfig } from "@oh-my-pi/pi-coding-agent/mcp/types";
+import type { McpResearchIntent } from "../research/types";
 import { record } from "../storage";
 
-export type ProductMcpConfig = MCPHttpServerConfig | MCPStdioServerConfig;
+export type ProductMcpConfig = (MCPHttpServerConfig | MCPStdioServerConfig) & {
+	researchTools?: Record<string, McpResearchIntent>;
+};
 
 const reference = /^(?:[A-Za-z][A-Za-z0-9_-]* )?\$\{([A-Z_][A-Z0-9_]*)\}$/;
 const reservedEnvironment =
@@ -29,6 +32,7 @@ export function parseMcpConfig(input: unknown): ProductMcpConfig {
 		"type",
 		"enabled",
 		"timeout",
+		"researchTools",
 		"requestIdFormat",
 		...(type === "http" ? ["url", "headers"] : ["command", "args", "env"]),
 	]);
@@ -40,7 +44,20 @@ export function parseMcpConfig(input: unknown): ProductMcpConfig {
 		throw new Error("MCP timeout 必须是 100–120000 毫秒，不能关闭超时");
 	if (raw.requestIdFormat !== undefined && raw.requestIdFormat !== "string" && raw.requestIdFormat !== "number")
 		throw new Error("MCP requestIdFormat 必须是 string 或 number");
-	const common = { timeout: Number(timeout), requestIdFormat: raw.requestIdFormat as "string" | "number" | undefined };
+	let researchTools: Record<string, McpResearchIntent> | undefined;
+	if (raw.researchTools !== undefined) {
+		const configured = record(raw.researchTools, "MCP researchTools");
+		if (Object.keys(configured).length > 1000) throw new Error("MCP researchTools 超过 1000 项上限");
+		for (const [tool, intent] of Object.entries(configured))
+			if (!tool.trim() || tool.length > 256 || (intent !== "content" && intent !== "discovery"))
+				throw new Error("MCP researchTools 必须把工具名明确设为 content（正文）或 discovery（搜索摘要）");
+		researchTools = configured as Record<string, McpResearchIntent>;
+	}
+	const common = {
+		researchTools,
+		timeout: Number(timeout),
+		requestIdFormat: raw.requestIdFormat as "string" | "number" | undefined,
+	};
 	if (type === "http") {
 		if (typeof raw.url !== "string") throw new Error("MCP url 必须是 HTTP(S) 地址");
 		const url = new URL(raw.url);

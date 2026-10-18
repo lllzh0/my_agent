@@ -1088,6 +1088,7 @@ export class AgentSession implements SettingsScope {
 	#admittedSubmissionCount = 0;
 	#admittedSubmissionsSettled: PromiseWithResolvers<void> | undefined;
 	#submissionGuard: (() => void) | undefined;
+	#activeEphemeralTurns = 0;
 	// Wire-level agent_end emission deferred until #promptInFlightCount drops to 0.
 	// Internal extension hooks and post-emit work (auto-retry, auto-compaction, todo
 	// checks in #handleAgentEvent) still fire on the original schedule — only the
@@ -2997,6 +2998,11 @@ export class AgentSession implements SettingsScope {
 	/** True while a submission has been admitted but has not yet started a turn, queued, or bailed. */
 	get hasAdmittedSubmission(): boolean {
 		return this.#admittedSubmissionCount > 0;
+	}
+
+	/** True while any side-channel request is preparing, streaming, or delivering its reply. */
+	get hasActiveEphemeralTurns(): boolean {
+		return this.#activeEphemeralTurns > 0;
 	}
 
 	/** Let an embedded host reject new submissions while its own session state is transitioning. */
@@ -11142,6 +11148,16 @@ export class AgentSession implements SettingsScope {
 	 * rather than missing context.
 	 */
 	async runEphemeralTurn(args: EphemeralTurnOptions): Promise<EphemeralTurnResult> {
+		this.#submissionGuard?.();
+		this.#activeEphemeralTurns++;
+		try {
+			return await this.#runEphemeralTurn(args);
+		} finally {
+			this.#activeEphemeralTurns--;
+		}
+	}
+
+	async #runEphemeralTurn(args: EphemeralTurnOptions): Promise<EphemeralTurnResult> {
 		const model = this.model;
 		if (!model) {
 			throw new Error("No active model on session");

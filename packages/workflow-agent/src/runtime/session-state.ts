@@ -56,16 +56,17 @@ export async function openSessionRuntime(
 		config.permissions.writeRoots,
 	);
 	sandbox.fullAccess = policy.approvalMode === "full";
+	const research = new Research(stateDir, config.search);
 	const runtime: SessionRuntime = {
 		sessionId,
 		stateDir,
 		sandbox,
 		jobs: new Supervisor(stateDir, cwd, policy, sandbox, config.execution?.envNames),
-		mcp: new ManagedMcp(config.mcpServers, policy, sandbox, cwd, stateDir, light),
+		mcp: new ManagedMcp(config.mcpServers, policy, sandbox, cwd, stateDir, light, research),
 		journal: new ChangeJournal(stateDir, cwd, async target => {
 			await policy.resolvePath(target, "write");
 		}),
-		research: new Research(stateDir, config.search),
+		research,
 		workflow: new Workflow(path.join(stateDir, "workflow.json")),
 		diagnostics: new Diagnostics(stateDir),
 	};

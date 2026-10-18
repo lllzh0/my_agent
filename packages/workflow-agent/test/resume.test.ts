@@ -76,7 +76,15 @@ test("the native session list is limited to this workspace and owned product rec
 		await fs.rm(path.join(old.result.stateDir, "manifest.json"));
 		const orphaned = await f.run({ action: "list-sessions" });
 		expect(orphaned.code, orphaned.stderr).toBe(0);
-		expect(orphaned.result.actionResult).toEqual([]);
+		// A successfully opened product session now persists even with no chat.
+		// Only that previous owned blank session may join the list; foreign,
+		// malformed, current and orphaned transcripts must still be excluded.
+		expect(orphaned.result.actionResult.map((item: { path: string }) => item.path)).toEqual([
+			listed.result.sessionFile,
+		]);
+		expect(orphaned.result.actionResult[0].id).toBe(listed.result.stateSessionId);
+		expect(orphaned.result.actionResult[0].messageCount).toBe(0);
+		expect(orphaned.result.actionResult[0].cwd).toBe(await fs.realpath(f.cwd));
 	} finally {
 		await f.close();
 	}

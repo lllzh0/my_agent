@@ -1,15 +1,14 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import { Database } from "bun:sqlite";
-import { AuthStorage, SqliteAuthCredentialStore } from "@oh-my-pi/pi-ai/auth-storage";
-import { ModelRegistry } from "@oh-my-pi/pi-coding-agent/config/model-registry";
 import { Settings } from "@oh-my-pi/pi-coding-agent/config/settings";
 import { createAgentSession, type CreateAgentSessionResult } from "@oh-my-pi/pi-coding-agent/sdk";
 import { SessionManager } from "@oh-my-pi/pi-coding-agent/session/session-manager";
 import { initializeExtensions } from "@oh-my-pi/pi-coding-agent/modes/runtime-init";
 import type { ToolSession } from "@oh-my-pi/pi-coding-agent/tools";
 import { cfgToolsApproval } from "@oh-my-pi/pi-coding-agent/tools/settings";
-import { loadConfig, defaultConfig } from "../config/config";
+import { ProductReview } from "../review/runner";
+import { ProductModels, type ModelBinding } from "../models/controller";
+import { loadConfig } from "../config/config";
 import { Policy, contained, type Approver, type ApprovalMode } from "../policy/policy";
 import { createReviewer } from "../policy/reviewer";
 import { atomicJson, readJson, record } from "../storage";
@@ -98,7 +97,7 @@ export async function openHost(options: HostOptions): Promise<Host> {
 			turn: "initial",
 		};
 		const closed = Promise.withResolvers<void>();
-		const auth = new AuthStorage(new SqliteAuthCredentialStore(new Database(":memory:")));
+		let models: ProductModels | undefined;
 		const demo = options.demo ? startDemo() : undefined;
 		let created: CreateAgentSessionResult | undefined;
 		let sessions: ProductSessions | undefined;
@@ -126,25 +125,12 @@ export async function openHost(options: HostOptions): Promise<Host> {
 					"goal.enabled": !light,
 				},
 			});
-			const selected = demo ? defaultConfig().model : config.model;
-			settings.setModelRole("default", `${selected.provider}/${selected.id}`);
-			const key = demo ? "offline-local-placeholder" : process.env[selected.apiKeyEnv];
-			if (key) auth.keys.setRuntime(selected.provider, key);
-			const registry = new ModelRegistry(auth, path.join(agentDir, "models.yml"), {
-				settings,
-				ignoreLocalModelConfig: true,
-			});
-			const native = registry.find(selected.provider, selected.id);
-			if (!native) throw new Error(`OMP 模型目录中未找到 ${selected.provider}/${selected.id}`);
-			const model = {
-				...native,
-				...(demo
-					? { baseUrl: `http://127.0.0.1:${demo.port}/v1`, name: "离线演示" }
-					: selected.baseUrl
-						? { baseUrl: selected.baseUrl }
-						: {}),
-			};
-			policy.setReviewer(createReviewer(model, key, state.sessionId, policy));
+			models = new ProductModels(state, settings, demo?.port);
+			state.models = models;
+			settings.setModelRole("default", `${models.activeModel().provider}/${models.activeModel().id}`);
+			const bindReviewer = (binding: ModelBinding) =>
+				createReviewer(binding.model, binding.apiKey, state.sessionId, policy);
+			policy.setReviewer(bindReviewer(models.rootBinding()));
 			const toolContext: ToolSession = {
 				cwd,
 				hasUI: false,
@@ -153,7 +139,7 @@ export async function openHost(options: HostOptions): Promise<Host> {
 				getSessionSpawns: () => null,
 				enableLsp: false,
 				enableMCP: false,
-				getActiveModel: () => model,
+				getActiveModel: () => models!.activeModel(),
 				hasEditTool: true,
 			};
 			const tools = light ? [] : productTools(state, toolContext);
@@ -167,9 +153,10 @@ export async function openHost(options: HostOptions): Promise<Host> {
 				cwd,
 				agentDir,
 				settings,
-				model,
-				authStorage: auth,
-				modelRegistry: registry,
+				model: models.activeModel(),
+				authStorage: models.auth,
+				modelRegistry: models.registry,
+				getApiKey: models.getApiKey,
 				sessionManager: manager,
 				cacheWarming: false,
 				systemPrompt: resources.systemPrompt,
@@ -216,7 +203,7 @@ export async function openHost(options: HostOptions): Promise<Host> {
 				activeRuntime = next;
 				const { diagnostics: _diagnostics, ...fields } = next;
 				Object.assign(state, fields, { turn: "initial" });
-				policy.setReviewer(createReviewer(model, key, state.sessionId, policy));
+				models!.rebindReviewer();
 				try {
 					await closeSessionRuntime(previousRuntime);
 				} catch (error) {
@@ -224,7 +211,13 @@ export async function openHost(options: HostOptions): Promise<Host> {
 				}
 			});
 			state.sessions = sessions;
-			created.session.setSubmissionGuard(() => sessions!.assertSubmissionAllowed());
+			models.attach(session, bindReviewer);
+			state.review = new ProductReview(state, session);
+			created.session.setSubmissionGuard(() => {
+				sessions!.assertSubmissionAllowed();
+				models!.assertSubmissionAllowed();
+				state.review!.assertSubmissionAllowed();
+			});
 			if (created.session.extensionRunner) created.session.extensionRunner.inputFailurePolicy = "handled";
 			const streamBuffer = created.session.rawSseDebugBuffer;
 			created.session.subscribe(event => {
@@ -277,6 +270,8 @@ export async function openHost(options: HostOptions): Promise<Host> {
 						throw new Error(error.error);
 					},
 				});
+			// Product records exist before the first chat turn, so their owning session must too.
+			await session.sessionManager.ensureOnDisk();
 			let disposing: Promise<void> | undefined;
 			return {
 				...created,
@@ -286,13 +281,14 @@ export async function openHost(options: HostOptions): Promise<Host> {
 				dispose() {
 					disposing ??= (async () => {
 						try {
+							await state.review?.close();
 							await sessions!.close();
 							await session.dispose();
 						} finally {
 							try {
 								await closeSessionRuntime(activeRuntime);
 							} finally {
-								auth.close();
+								await models?.dispose();
 								demo?.stop(true);
 								closed.resolve();
 							}
@@ -303,12 +299,13 @@ export async function openHost(options: HostOptions): Promise<Host> {
 			};
 		} catch (error) {
 			try {
+				await state.review?.close();
 				await created?.session.dispose();
 			} finally {
 				try {
 					await closeSessionRuntime(activeRuntime);
 				} finally {
-					auth.close();
+					await models?.dispose();
 					demo?.stop(true);
 				}
 			}

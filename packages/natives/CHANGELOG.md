@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- Added a bounded Git index/tree metadata inventory for permission-aware readers, without running clean filters or writing worktree blobs.
+
 ### Fixed
 
 - Fixed `pwsh` code blocks rendering without PowerShell syntax colors ([#15008](https://github.com/can1357/oh-my-pi/issues/15008)).

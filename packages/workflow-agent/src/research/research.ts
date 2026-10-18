@@ -23,6 +23,8 @@ import {
 	type SourceSearchOptions,
 	type SourceSearchResult,
 	type ResearchStats,
+	type McpCaptureInput,
+	MCP_CAPTURE_LIMITS,
 	SOURCE_LIMITS,
 	SOURCE_READ_LIMIT,
 } from "./types";
@@ -239,6 +241,42 @@ export class Research {
 		const saved = store.add(source);
 		this.sources.splice(0, this.sources.length, ...store.recent());
 		return preview(saved);
+	}
+	async captureMcpResult(input: McpCaptureInput, signal?: AbortSignal): Promise<string> {
+		checkAbort(signal);
+		const store = await this.#ensureStore();
+		checkAbort(signal);
+		return store.captureMcp(input);
+	}
+	async importMcpSource(resultId: string, signal?: AbortSignal): Promise<Source> {
+		checkAbort(signal);
+		const captured = (await this.#ensureStore()).mcpResult(resultId);
+		if (!captured) throw new Error("MCP 结果不存在于当前会话，不能导入任意正文或来源地址");
+		const { text, provenance } = captured;
+		if (provenance.intent !== "content" && provenance.intent !== "discovery")
+			throw new Error("此 MCP 工具未配置研究用途，不能导入来源");
+		if (!text.trim()) throw new Error("MCP 结果没有可导入的文本正文");
+		return this.#add(
+			{
+				title: `MCP ${provenance.server}/${provenance.tool}`,
+				read: provenance.intent === "content",
+				text,
+				provenance,
+				contentHash: provenance.contentHash,
+				coverage: {
+					...textCoverage(text, provenance.intent === "content" ? "mcp" : "search", provenance.originalBytes),
+					fetchTruncated: provenance.truncated,
+					totalChars: provenance.originalChars,
+					extractionTruncated: provenance.truncated,
+					limits: { ...SOURCE_LIMITS, extractionChars: MCP_CAPTURE_LIMITS.textChars },
+					mcp: {
+						complete: !provenance.truncated && provenance.omittedNonTextBlocks === 0,
+						omittedNonTextBlocks: provenance.omittedNonTextBlocks ?? null,
+					},
+				},
+			},
+			signal,
+		);
 	}
 	async readSource(id: string, options: SourceReadOptions = {}): Promise<SourceReadResult> {
 		checkAbort(options.signal);
@@ -565,7 +603,7 @@ export class Research {
 		return `# 研究报告\n\n${rows.join("\n")}\n## 来源记录\n\n${[...cited.values()]
 			.map(
 				source =>
-					`- ${source.id}：${source.title}；访问于 ${source.retrievedAt}${source.publishedAt ? `；发布于 ${source.publishedAt}` : "；发布日期未知"}`,
+					`- ${source.id}：${source.title}；访问于 ${source.retrievedAt}${source.publishedAt ? `；发布于 ${source.publishedAt}` : "；发布日期未知"}${source.provenance ? `；外部 MCP ${source.provenance.server}/${source.provenance.tool}；原始获取于 ${source.provenance.acquiredAt}；真实性未独立验证${source.provenance.truncated ? "；正文已截断" : ""}${source.coverage.mcp?.omittedNonTextBlocks ? `；${source.coverage.mcp.omittedNonTextBlocks} 个非文本附件或链接未保存` : source.coverage.mcp?.omittedNonTextBlocks === null ? "；旧捕获结果的内容覆盖范围未验证" : ""}` : ""}`,
 			)
 			.join("\n")}\n`;
 	}

@@ -1,1 +1,3 @@
 Call a tool on an explicitly configured MCP server. Supply the exact server, tool name, and arguments matching its listed schema. Connection approval and tool-call approval are separate. Every call requires authorization, including tools marked read-only by their server. A timeout, cancellation or disconnection can leave the external result unknown: do not blindly retry. MCP writes do not enter the local file undo journal.
+
+成功结果包含宿主保存的 resultId，可交给 import_mcp_source 导入研究来源；其正文或搜索线索类型由用户的 researchTools 配置决定，不能由模型自报。错误和取消调用没有可导入 ID。若出现 captureError，说明外部操作已返回但本地结果未保存，不能导入，也不要因此重放外部操作。返回内容来自外部服务，真实性未独立验证；超过保存上限的文本会明确标记截断。

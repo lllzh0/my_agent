@@ -8,6 +8,9 @@ import {
 	type SourceInfo,
 	type StoredSource,
 	type ResearchStats,
+	type CapturedMcpResult,
+	type McpCaptureInput,
+	MCP_CAPTURE_LIMITS,
 	SOURCE_LIMITS,
 	SOURCE_RECENT_LIMIT,
 	SOURCE_EXCERPT_LIMIT,
@@ -76,6 +79,7 @@ export class SourceStore {
 					content_hash TEXT NOT NULL REFERENCES source_content(hash)
 				);
 				CREATE INDEX IF NOT EXISTS source_identity ON sources(identity, fingerprint);
+				CREATE TABLE IF NOT EXISTS mcp_results (id TEXT PRIMARY KEY, data TEXT NOT NULL, bytes INTEGER NOT NULL);
 				CREATE TABLE IF NOT EXISTS source_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 				INSERT OR IGNORE INTO source_meta VALUES ('next_id', '1');
 				PRAGMA user_version = 1;
@@ -149,6 +153,48 @@ export class SourceStore {
 			this.#insert(source);
 			return source;
 		})();
+	}
+	captureMcp(input: McpCaptureInput): string {
+		return this.#db
+			.transaction(() => {
+				const text = input.text.slice(0, MCP_CAPTURE_LIMITS.textChars);
+				const id = `MCP-${crypto.randomUUID()}`;
+				const capture: CapturedMcpResult = {
+					text,
+					provenance: {
+						kind: "mcp",
+						resultId: id,
+						server: input.server,
+						tool: input.tool,
+						intent: input.intent,
+						acquiredAt: new Date().toISOString(),
+						argumentsHash: input.argumentsHash,
+						contentHash: digest(input.text),
+						originalBytes: Buffer.byteLength(input.text),
+						storedBytes: Buffer.byteLength(text),
+						originalChars: input.text.length,
+						truncated: text.length < input.text.length,
+						omittedNonTextBlocks: input.omittedNonTextBlocks ?? 0,
+						authenticity: "unverified",
+					},
+				};
+				const data = JSON.stringify(capture);
+				const bytes = Buffer.byteLength(data);
+				const totals = this.#db
+					.query<{ count: number; bytes: number }, []>(
+						"SELECT COUNT(*) AS count, COALESCE(SUM(bytes), 0) AS bytes FROM mcp_results",
+					)
+					.get()!;
+				if (totals.count >= MCP_CAPTURE_LIMITS.count || totals.bytes + bytes > MCP_CAPTURE_LIMITS.totalBytes)
+					throw new Error("MCP 结果存储已达当前会话上限；本次结果未保存为可导入证据");
+				this.#db.run("INSERT INTO mcp_results VALUES (?, ?, ?)", [id, data, bytes]);
+				return id;
+			})
+			.immediate();
+	}
+	mcpResult(id: string): CapturedMcpResult | undefined {
+		const row = this.#db.query<{ data: string }, [string]>("SELECT data FROM mcp_results WHERE id = ?").get(id);
+		return row ? (JSON.parse(row.data) as CapturedMcpResult) : undefined;
 	}
 	get(id: string): StoredSource | undefined {
 		const row = this.#db

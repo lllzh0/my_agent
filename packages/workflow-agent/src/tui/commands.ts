@@ -1,3 +1,4 @@
+import { getModelPricingStatus } from "@oh-my-pi/pi-catalog/models";
 import type { ExtensionAPI, ExtensionContext, InputEventResult } from "@oh-my-pi/pi-coding-agent/sdk";
 import type { AgentSession } from "@oh-my-pi/pi-coding-agent/session/agent-session";
 import { replaceTabs, type SlashCommand } from "@oh-my-pi/pi-tui";
@@ -9,7 +10,10 @@ import { redact } from "../storage";
 import undoneMessage from "../prompts/files-undone.md" with { type: "text" };
 import { mcpMenu } from "./mcp-menu";
 import { selectPermissions, updateProductStatus } from "./permissions";
+import { selectModel } from "./model";
 import { resumeFromCommand } from "./resume";
+import { collectProductDiff } from "../review/diff";
+import { reviewFromCommand } from "./review";
 
 const commands: SlashCommand[] = [
 	{ name: "help", description: "显示当前产品支持的命令" },
@@ -21,9 +25,12 @@ const commands: SlashCommand[] = [
 		argumentHint: "[问题]",
 		allowArgs: true,
 	},
+	{ name: "model", description: "查看或切换本会话显式模型连接", argumentHint: "[key] [思考强度]", allowArgs: true },
 	{ name: "effort", description: "查看或设置本会话思考强度", argumentHint: "[强度]", allowArgs: true },
 	{ name: "retry", aliases: ["redo"], description: "重试上一轮失败或中断的回答" },
 	{ name: "undo", description: "撤销最近一轮未恢复的文件工具修改，保留聊天" },
+	{ name: "diff", description: "查看项目差异及未覆盖文件", argumentHint: "[本地基准]", allowArgs: true },
+	{ name: "review", description: "对项目差异进行有请求上限的只读审查", argumentHint: "[本地基准]", allowArgs: true },
 	{ name: "fresh", description: "重建模型连接状态，保留本地聊天" },
 	{ name: "usage", description: "查看本会话本地 token 和费用统计" },
 	{ name: "tools", description: "查看实际工具与资源清单" },
@@ -51,6 +58,7 @@ const commands: SlashCommand[] = [
 	{ name: "compact", description: "压缩当前上下文", argumentHint: "[soft] [关注内容]", allowArgs: true },
 	{ name: "session", description: "查看当前会话信息", argumentHint: "[info]", allowArgs: true },
 	{ name: "resume", description: "恢复当前工作区的旧会话", argumentHint: "[会话ID]", allowArgs: true },
+	{ name: "new", description: "保存旧会话并开始空白会话，重置授权" },
 	{ name: "hotkeys", description: "查看快捷键" },
 	{ name: "quit", aliases: ["q"], description: "退出并保存会话" },
 ];
@@ -198,9 +206,25 @@ export async function handleProductCommand(
 	};
 	try {
 		switch (command.name) {
+			case "model":
+				await selectModel(state, ctx, args);
+				break;
 			case "resume":
 				await resumeFromCommand(state, ctx, args, ensureIdle);
 				break;
+			case "new": {
+				ensureIdle();
+				if (!state.sessions) throw new Error("会话管理尚未初始化。");
+				const result = await state.sessions.startNew(ctx.signal);
+				updateProductStatus(state, ctx);
+				ctx.ui.notify(
+					result.refreshFailed
+						? "新会话已创建，旧聊天和记录已保存、授权已重置；界面刷新失败，请退出后用 --resume 重新打开当前会话。"
+						: "已开始空白会话；旧聊天和记录可通过 /resume 恢复，授权已按配置重置。",
+					result.refreshFailed ? "warning" : "info",
+				);
+				break;
+			}
 			case "help":
 				await showProductData(
 					ctx,
@@ -224,7 +248,10 @@ export async function handleProductCommand(
 				await showProductData(ctx, "本地用量", {
 					...session.getSessionStats(),
 					automaticReview: state.policy.reviewUsage,
-					note: "仅当前会话累计；按模型返回用量及目录价格估算，不代表订阅剩余额度或账单。",
+					codeReview: await state.review?.stats(),
+					model: state.models?.current(),
+					pricingStatus: state.models ? getModelPricingStatus(state.models.activeModel()) : undefined,
+					note: "仅当前会话累计；按模型返回用量及目录价格估算，不代表订阅剩余额度或账单；未知价格时记录的 0 不能当作免费。",
 				});
 				break;
 			case "session":
@@ -265,6 +292,14 @@ export async function handleProductCommand(
 				break;
 			case "undo":
 				await restoreFromCommand(state, ctx, api, latestFileTurn(state), ensureIdle);
+				break;
+			case "diff":
+				ensureIdle();
+				await showProductData(ctx, "项目差异", await collectProductDiff(state, args || undefined, ctx.signal));
+				break;
+			case "review":
+				ensureIdle();
+				await showProductData(ctx, "代码审查结果", await reviewFromCommand(state, ctx, args || undefined));
 				break;
 			case "tools":
 				await showProductData(ctx, "工具与资源", {

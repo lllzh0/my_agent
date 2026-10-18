@@ -9,6 +9,9 @@ import type { Sandbox } from "../processes/sandbox";
 import type { ManagedMcp } from "../mcp/manager";
 import type { ProductSessions } from "./sessions";
 
+import type { ProductReview } from "../review/runner";
+import type { ProductModels } from "../models/controller";
+
 export interface RunState {
 	home: string;
 	cwd: string;
@@ -26,4 +29,6 @@ export interface RunState {
 	mcp: ManagedMcp;
 	turn: string;
 	sessions?: ProductSessions;
+	models?: ProductModels;
+	review?: ProductReview;
 }

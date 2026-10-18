@@ -10,7 +10,7 @@ export interface SourceRange {
 }
 
 export interface SourceCoverage {
-	acquisition: "search" | "fetched" | "local" | "legacy";
+	acquisition: "search" | "fetched" | "local" | "legacy" | "mcp";
 	fetchedBytes: number | null;
 	fetchTruncated: boolean | null;
 	extractedChars: number;
@@ -20,8 +20,48 @@ export interface SourceCoverage {
 	totalPages?: number;
 	extractedPages?: number;
 	truncatedPages?: number[];
+	/** Complete acquisition includes all text/structured data and no omitted media or links. */
+	mcp?: { complete: boolean; omittedNonTextBlocks: number | null };
 	limits: { fetchBytes: number; extractionChars: number; pdfPages: number; pdfPageChars: number };
 }
+
+export type McpResearchIntent = "content" | "discovery";
+
+export interface McpSourceProvenance {
+	kind: "mcp";
+	resultId: string;
+	server: string;
+	tool: string;
+	intent: McpResearchIntent | "unclassified";
+	acquiredAt: string;
+	argumentsHash: string;
+	contentHash: string;
+	originalBytes: number;
+	storedBytes: number;
+	originalChars: number;
+	truncated: boolean;
+	/** Missing on older captures whose selected-content coverage is unknown. */
+	omittedNonTextBlocks?: number;
+	/** External tool assertions have not been independently authenticated. */
+	authenticity: "unverified";
+}
+
+/** Only the host MCP manager creates these from an actual successful reply. */
+export interface McpCaptureInput {
+	server: string;
+	tool: string;
+	intent: McpResearchIntent | "unclassified";
+	argumentsHash: string;
+	text: string;
+	omittedNonTextBlocks?: number;
+}
+
+export interface CapturedMcpResult {
+	text: string;
+	provenance: McpSourceProvenance;
+}
+
+export const MCP_CAPTURE_LIMITS = { textChars: 200_000, totalBytes: 20_000_000, count: 1000 };
 
 export interface SourceInfo {
 	id: string;
@@ -35,6 +75,7 @@ export interface SourceInfo {
 	contentHash?: string;
 	/** Evidence was acquired; this does not mean all text was returned to the model. */
 	read: boolean;
+	provenance?: McpSourceProvenance;
 	coverage: SourceCoverage;
 }
 

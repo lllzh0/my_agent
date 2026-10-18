@@ -1,5 +1,5 @@
 import { TextJudge, chatTextBackend, judgeQuestions } from "@oh-my-pi/pi-ai/judgment";
-import type { Api, Model } from "@oh-my-pi/pi-ai";
+import type { Api, ApiKey, Model } from "@oh-my-pi/pi-ai";
 import questions from "../prompts/judge/permission-review.json" with { type: "json" };
 import type { Policy, Reviewer } from "./policy";
 import { redact } from "../storage";
@@ -16,7 +16,7 @@ const reasons = {
 /** A separate bounded model request, with no workflow resources or action tools. */
 export function createReviewer(
 	model: Model<Api>,
-	apiKey: string | undefined,
+	apiKey: ApiKey | undefined,
 	sessionId: string,
 	policy: Policy,
 ): Reviewer {

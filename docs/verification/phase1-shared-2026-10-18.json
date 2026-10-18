@@ -1,0 +1,54 @@
+{
+  "date": "2026-10-18",
+  "branch": "main",
+  "baseCommit": "443d1498a4712384e0d383c519f91a4ad7118f3c",
+  "scope": [
+    "explicit model management",
+    "new product sessions",
+    "readonly project diff and bounded review",
+    "captured MCP evidence import"
+  ],
+  "checks": {
+    "productSuite": {
+      "pass": 251,
+      "skip": 6,
+      "fail": 0,
+      "assertions": 1359,
+      "files": 31
+    },
+    "productCheck": "passed oxlint, oxfmt, tsgo",
+    "nativeVcs": {
+      "pass": 11,
+      "fail": 0,
+      "assertions": 52
+    },
+    "nativeAffectedSessionTests": {
+      "pass": 158,
+      "fail": 0,
+      "assertions": 687
+    },
+    "nativesPackageCheck": "passed",
+    "independentSharedReview": "passed after fixing review-only session durability"
+  },
+  "fixesVerified": [
+    "active side request blocks model/session/review transitions",
+    "unknown model requires input metadata",
+    "readonly diff does not execute Git clean filters or write loose objects",
+    "mode-only changes remain visible",
+    "late cancellation refuses native session switch",
+    "clean repository coverage ignores intentional metadata exclusions",
+    "mixed MCP structured content is captured with omitted attachment coverage",
+    "blank/review-only sessions persist and resume across processes"
+  ],
+  "boundaries": [
+    "six optional macOS sandbox/live execution tests not rerun",
+    "no real model/search/remote MCP calls",
+    "no real terminal human acceptance",
+    "raw file diff may differ from Git attribute or newline normalization; renames shown add/delete",
+    "unknown custom model prices are not known zero-cost services",
+    "old omitted MCP body cannot be recovered",
+    "role models and shared group budget remain collaboration-only follow-up tasks"
+  ],
+  "driverAccepted": false,
+  "pushed": false
+}

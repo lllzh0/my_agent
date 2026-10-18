@@ -13,6 +13,7 @@ import { toolDescriptions } from "./tool-prompts";
 import readDescription from "../prompts/tool-read.md" with { type: "text" };
 import mcpListDescription from "../prompts/tool-mcp-list.md" with { type: "text" };
 import mcpCallDescription from "../prompts/tool-mcp-call.md" with { type: "text" };
+import sourceImportDescription from "../prompts/tool-import-mcp-source.md" with { type: "text" };
 import sourceReadDescription from "../prompts/tool-read-source.md" with { type: "text" };
 import sourceSearchDescription from "../prompts/tool-search-source.md" with { type: "text" };
 import lsDescription from "../prompts/tool-ls.md" with { type: "text" };
@@ -80,6 +81,20 @@ export function productTools(state: RunState, context: ToolSession): ToolDefinit
 		}),
 		async execute(_id, input, signal) {
 			return result(await state.mcp.call(input.server, input.tool, input.arguments, signal));
+		},
+	});
+	pi.registerTool({
+		name: "import_mcp_source",
+		label: "保存 MCP 研究来源",
+		description: sourceImportDescription,
+		parameters: Type.Object({ resultId: Type.String() }, { additionalProperties: false }),
+		approval: "read",
+		async execute(_id, input, signal) {
+			await policy.authorize(
+				{ tool: "import_mcp_source", kind: "read", target: state.cwd, parameters: { resultId: input.resultId } },
+				signal,
+			);
+			return result(await state.research.importMcpSource(input.resultId, signal));
 		},
 	});
 	// The native client bridge receives the final text after replacement. Check

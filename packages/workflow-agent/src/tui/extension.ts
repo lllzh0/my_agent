@@ -66,6 +66,20 @@ export function productExtension(
 		});
 		api.on("input", (event, ctx) => {
 			approvalContext = ctx;
+			try {
+				state.models?.assertSubmissionAllowed();
+				state.review?.assertSubmissionAllowed();
+			} catch (error) {
+				ctx.ui.notify(error instanceof Error ? error.message : "模型连接不可用", "error");
+				return { handled: true };
+			}
+			if (
+				event.source === "extension" &&
+				["model", "review"].includes(parseProductCommand(event.text)?.name ?? "")
+			) {
+				ctx.ui.notify("模型连接和独立代码审查只能由用户主动调用。", "error");
+				return { handled: true };
+			}
 			if (state.sessions?.busy || state.sessions?.closed) {
 				ctx.ui.notify(
 					state.sessions.closed ? "会话正在关闭，无法接收新输入。" : "正在切换会话，请稍后再输入。",
@@ -73,7 +87,7 @@ export function productExtension(
 				);
 				return { handled: true };
 			}
-			if (event.source === "extension" && parseProductCommand(event.text)?.name === "resume") {
+			if (event.source === "extension" && ["resume", "new"].includes(parseProductCommand(event.text)?.name ?? "")) {
 				ctx.ui.notify("会话只能由用户主动恢复。", "error");
 				return { handled: true };
 			}
