@@ -1,6 +1,5 @@
-import * as fs from "node:fs/promises";
+import * as fs from "node:fs";
 import * as path from "node:path";
-import { constants } from "node:fs";
 import * as vcs from "@oh-my-pi/pi-natives/vcs";
 import type { VcsGitRepo } from "@oh-my-pi/pi-natives";
 import { createTwoFilesPatch } from "diff";
@@ -51,9 +50,9 @@ async function blob(repo: VcsGitRepo, oid: string, signal?: AbortSignal): Promis
 }
 
 async function worktreeFile(target: string): Promise<{ text: string; mode: string } | undefined> {
-	let handle: fs.FileHandle;
+	let handle: fs.promises.FileHandle;
 	try {
-		handle = await fs.open(target, constants.O_RDONLY | constants.O_NOFOLLOW);
+		handle = await fs.promises.open(target, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
 	} catch (error) {
 		if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
 		throw error;
@@ -86,8 +85,8 @@ export async function collectProductDiff(
 	signal?.throwIfAborted();
 	const revision = state.policy.revision;
 	const repo = vcs.requireGit(state.cwd);
-	const root = await fs.realpath(repo.info().repoRoot);
-	const workspace = await fs.realpath(state.cwd);
+	const root = await fs.promises.realpath(repo.info().repoRoot);
+	const workspace = await fs.promises.realpath(state.cwd);
 	const scanPolicy = new Policy(workspace, { readRoots: [], writeRoots: [], allowNetwork: false });
 	scanPolicy.protectedRoots = [state.home, ...state.policy.protectedRoots];
 	const indexEntries = new Map(
