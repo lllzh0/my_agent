@@ -1,5 +1,13 @@
 # My Agent 开发交接
 
+最新保存点（2026-10-20，Asia/Shanghai）：第一阶段已约定的功能开发收尾，真实服务与人工验收仍独立保留；第二阶段进入预设设计，尚未开始编码。本次本地提交包含默认消息统计及其测试、文档，main 保持单 agent，未推送。下文“未提交”等描述属于历史记录，以本节为准。
+
+本次完整产品回归 **255 pass / 6 skip / 0 fail**，1387 次断言，32 个测试文件；包内 oxlint、oxfmt、tsgo 通过。6 项真实 macOS 沙箱检查本次未重跑，未进行真实服务或人工终端验收。详见 [保存点验证](docs/verification/phase1-checkpoint-2026-10-20.json)。后续只对第一阶段实际阻断做定点修复，不自动扩充功能清单。
+
+最新共享功能（2026-10-19）：main 和 `codex/team-scheduler-wait` 均已默认开启每条模型消息的平均 TPS 与首个输出等待时间，普通/轻量模式及恢复会话生效；直接复用 OMP 的 `display.showTokenUsage`，不新增第三方插件、模型请求或提示词。需重启产品入口；每条消息结束后显示统计条。TPS 包含首字等待，TTFT 包含思考/工具调用首块，缺失数据不补造；详见 [消息统计](docs/workflow-agent-message-metrics.md)。
+
+本批针对性回归：协作分支 72 pass、main 73 pass，均 0 fail；原生显示/历史回放/状态吞吐回归 34 pass、0 fail；两个包内 check 通过。未重跑整套产品测试，以下历史完整测试数属于此前保存点。真实服务与人工终端视觉验收仍未做。两工作区都保留未提交的本批改动、未推送，协作分支先前未提交成果也保留；main 仍是单 agent。主工作区在协作分支，main 位于父目录 `.worktrees/main-sync`。源码哈希、测试和分支记录见 [本批验证](docs/verification/message-metrics-2026-10-19.json)。
+
 更新：2026-10-18（Asia/Shanghai）。本地单 agent 基础同步已保存为 `443d1498a4`，协作原有工作保留为其后继 `b9104e5789`。用户明确要求 `main` 保持单 agent，多角色协作留在 `codex/team-efficiency`。本轮新增模型管理、新会话、差异审查、MCP 来源桥接；公共功能独立审查和最终整套回归已通过（251 pass、6 skip、0 fail），接下来整合协作分支；未推送。
 
 新增功能用法见 [第一阶段日常功能](docs/workflow-agent-daily-use.md)。批准范围与剩余任务见 [实现计划](docs/superpowers/plans/2026-10-17-phase1-completion.md)。协作角色模型选择和共享预算在公共功能审查完成后实现。真实服务、终端试用和人工验收仍单独保留。公共功能的离线结果见 [验证记录](docs/verification/phase1-shared-2026-10-18.json)。

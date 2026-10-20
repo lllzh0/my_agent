@@ -120,6 +120,8 @@ export async function openHost(options: HostOptions): Promise<Host> {
 					"lsp.diagnosticsOnEdit": false,
 					"edit.mode": "replace",
 					"startup.quiet": true,
+					// Built-in message metrics reuse OMP timing, rendering and persisted history.
+					"display.showTokenUsage": true,
 					"input.bareSlashCommands": false,
 					"task.completionProbe": false,
 					"goal.enabled": !light,

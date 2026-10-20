@@ -11,6 +11,8 @@ export interface WireRequest {
 export interface WireReply {
 	call?: { name: string; arguments: unknown };
 	text?: string;
+	delayMs?: number;
+	usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
 }
 
 export async function fixture(homeInsideWorkspace = false) {
@@ -107,10 +109,15 @@ export async function fixture(homeInsideWorkspace = false) {
 					{ headers: { "content-type": "text/event-stream" } },
 				);
 			}
+			if (reply?.delayMs) await Bun.sleep(reply.delayMs);
 			return new Response(
 				[
 					{ ...base, choices: [{ index: 0, delta, finish_reason: null }] },
-					{ ...base, choices: [{ index: 0, delta: {}, finish_reason: call ? "tool_calls" : "stop" }] },
+					{
+						...base,
+						choices: [{ index: 0, delta: {}, finish_reason: call ? "tool_calls" : "stop" }],
+						...(reply?.usage ? { usage: reply.usage } : {}),
+					},
 				]
 					.map(frame => `data: ${JSON.stringify(frame)}\n\n`)
 					.join("") + "data: [DONE]\n\n",

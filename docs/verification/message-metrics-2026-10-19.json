@@ -1,0 +1,111 @@
+{
+  "date": "2026-10-19",
+  "feature": "Default built-in per-message TPS and TTFT using OMP usage rows",
+  "implementation": {
+    "setting": "display.showTokenUsage=true",
+    "scope": "Product in-memory settings, both normal/light modes; no upstream default or global config changes",
+    "tps": "usage.output * 1000 / duration (milliseconds), including initial wait",
+    "ttft": "Native request start to first text/thinking/tool-call output block; may precede first prose character",
+    "display": "Native usage row after each assistant message, with persisted timing reused on resume",
+    "dependenciesAdded": false,
+    "modelRequestsAdded": false,
+    "promptTokensAdded": false
+  },
+  "branches": {
+    "team": {
+      "branch": "codex/team-scheduler-wait",
+      "workspace": "/Users/ly/Desktop/my_agent/my_agent",
+      "baseCommit": "dbb98b9f38bf3ae01f8b819b5188cb1f81719879",
+      "committed": false,
+      "pushed": false,
+      "check": {
+        "command": "bun run check",
+        "exitCode": 0,
+        "log": "/Users/ly/Desktop/my_agent/artifacts/message-metrics-team-check.log"
+      },
+      "regression": {
+        "command": "bun test test/message-metrics.test.ts test/host.test.ts test/resume.test.ts test/commands.test.ts test/goal.test.ts test/btw.test.ts",
+        "pass": 72,
+        "fail": 0,
+        "assertions": 537,
+        "total": 72,
+        "files": 6,
+        "elapsed": "109.54s",
+        "exitCode": 0,
+        "log": "/Users/ly/Desktop/my_agent/artifacts/message-metrics-team-regression.log"
+      },
+      "sourceHashes": {
+        "packages/workflow-agent/src/runtime/host.ts": "0b7a7ff66508c6e130503e715bb18886ad1f23c13f45fe811dc12c3586ac5dfe",
+        "packages/workflow-agent/test/host-worker.ts": "642524af0cb8caa5620fa7ad4bbd397691e3ceec5b7ca10dddd781534af4e952",
+        "packages/workflow-agent/test/helpers.ts": "a98dc25e474480cab1d11786cc75b77e551b1d3c1bb8c4f22684dcb7d084315d",
+        "packages/workflow-agent/test/message-metrics.test.ts": "68920c075e75bf3b8dd5b7265292430a845e3cb0d796f70ca7212c1ff5f48ad7"
+      }
+    },
+    "main": {
+      "branch": "main",
+      "workspace": "/Users/ly/Desktop/my_agent/.worktrees/main-sync",
+      "baseCommit": "c8b5ccbd10910d3fe41984c10f13e8c4861592cd",
+      "committed": false,
+      "pushed": false,
+      "check": {
+        "command": "bun run check",
+        "exitCode": 0,
+        "log": "/Users/ly/Desktop/my_agent/artifacts/message-metrics-main-check.log"
+      },
+      "regression": {
+        "command": "bun test test/message-metrics.test.ts test/host.test.ts test/resume.test.ts test/commands.test.ts test/goal.test.ts test/btw.test.ts",
+        "pass": 73,
+        "fail": 0,
+        "assertions": 556,
+        "total": 73,
+        "files": 6,
+        "elapsed": "109.45s",
+        "exitCode": 0,
+        "log": "/Users/ly/Desktop/my_agent/artifacts/message-metrics-main-regression.log"
+      },
+      "sourceHashes": {
+        "packages/workflow-agent/src/runtime/host.ts": "3bdba017688df0ad69c604c5c6d076417a09b0cff9a5ccbe061a1690377870c1",
+        "packages/workflow-agent/test/host-worker.ts": "2213c27a345e9b2e6c0092b0afeaf5f1764ec8238658becbc0ed3872bfae58dc",
+        "packages/workflow-agent/test/helpers.ts": "a98dc25e474480cab1d11786cc75b77e551b1d3c1bb8c4f22684dcb7d084315d",
+        "packages/workflow-agent/test/message-metrics.test.ts": "68920c075e75bf3b8dd5b7265292430a845e3cb0d796f70ca7212c1ff5f48ad7"
+      }
+    }
+  },
+  "nativeRegression": {
+    "command": "bun test test/usage-row-placement.test.ts test/usage-row-turn-time.test.ts test/status-line-token-rate.test.ts",
+    "sourcesIdenticalAcrossBranches": [
+      "packages/ai/src/providers/openai-completions.ts",
+      "packages/coding-agent/src/modes/controllers/event-controller.ts",
+      "packages/coding-agent/src/modes/utils/ui-helpers.ts",
+      "packages/tui/src/overlays/usage-row.ts",
+      "packages/coding-agent/src/modes/settings.ts"
+    ],
+    "pass": 34,
+    "fail": 0,
+    "assertions": 61,
+    "total": 34,
+    "files": 3,
+    "elapsed": "1.62s",
+    "exitCode": 0,
+    "log": "/Users/ly/Desktop/my_agent/artifacts/message-metrics-native-tests.log"
+  },
+  "redEvidence": {
+    "log": "/Users/ly/Desktop/my_agent/artifacts/message-metrics-red.log",
+    "pass": 1,
+    "fail": 3,
+    "cause": "Provider duration/TTFT and usage exist but product transcript omits per-message metrics before enabling the native display"
+  },
+  "review": {
+    "kind": "bounded self-review",
+    "result": "pass",
+    "evidence": "Only two production lines (native setting and comment) added in each host; no runtime, permission, prompt, tool or model identity changes. Real host-to-native-render tests fail without the setting and pass with it."
+  },
+  "limitations": [
+    "Targeted product/native regression only; did not repeat both complete product suites",
+    "No paid/live provider or manual terminal visual acceptance",
+    "Missing provider usage may suppress the native row; no fabricated TPS",
+    "Legacy records lacking timing cannot reconstruct it",
+    "Rows display at message completion; --print retains its existing plain output"
+  ],
+  "artifactsOutsideRepository": true
+}

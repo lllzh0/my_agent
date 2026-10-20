@@ -8,6 +8,9 @@ import type { InteractiveModeContext } from "@oh-my-pi/pi-coding-agent/modes/typ
 import { testSetExtensionHandlerTimeoutMs } from "@oh-my-pi/pi-coding-agent/extensibility/extensions/runner";
 import type { ExtensionUIContext } from "@oh-my-pi/pi-coding-agent/sdk";
 import type { Change } from "../src/changes/journal";
+import { ChatTranscriptBuilder } from "@oh-my-pi/pi-tui/chat/chat-transcript-builder";
+import { initTheme } from "@oh-my-pi/pi-tui/theme";
+import type { TUI } from "@oh-my-pi/pi-tui";
 
 const options = JSON.parse(process.argv[2]) as {
 	home: string;
@@ -556,6 +559,16 @@ try {
 			} finally {
 				clearTimeout(timer);
 			}
+		} else if (options.action === "message-metrics") {
+			if (!options.resume) await host.session.prompt("MESSAGE_METRICS");
+			await initTheme();
+			const transcript = new ChatTranscriptBuilder({
+				ui: { requestRender() {}, requestComponentRender() {} } as unknown as TUI,
+				cwd: options.cwd,
+				requestRender() {},
+			});
+			transcript.rebuild(host.session.sessionManager.getBranch().filter(entry => entry.type === "message"));
+			actionResult = { rendered: Bun.stripANSI(transcript.container.render(160).join("\n")) };
 		} else if (options.action === "abort-stalled-model") {
 			let timer: Timer | undefined;
 			const unsubscribe = host.session.subscribe(event => {
