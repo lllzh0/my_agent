@@ -11,6 +11,11 @@
 
 - Removed the Codex `toolMode` model field (`code_mode_only`); Codex discovery no longer maps `tool_mode`
 
+### Fixed
+
+- OpenCode Go bundled models and generated fallback rows use the current inference endpoint.
+
+
 ## [18.10.3] - 2026-10-12
 
 ### Breaking Changes

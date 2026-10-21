@@ -182,6 +182,23 @@ describe("error-id classification", () => {
 		expect(AIError.retriable(id)).toBe(true);
 	});
 
+	it.each([
+		"The service is temporarily unavailable, please try again later",
+		"Model temporarily_unavailable",
+		"Temporary unavailable: capacity",
+	])("classifies temporary-unavailability wording as transient + retryable: %s", errorMessage => {
+		const id = AIError.classifyMessage(message({ errorMessage }));
+		expect(AIError.is(id, AIError.Flag.Transient)).toBe(true);
+		expect(AIError.retriable(id)).toBe(true);
+	});
+
+	it("keeps temporary-unavailability wording on a terminal 4xx terminal", () => {
+		const id = AIError.classifyMessage(
+			message({ errorStatus: 403, errorMessage: "403 This model is temporarily unavailable on your plan" }),
+		);
+		expect(AIError.retriable(id)).toBe(false);
+	});
+
 	it("keeps authenticated connection rejections non-retryable", () => {
 		const assistant = message({
 			errorMessage: "Unable to connect: 401 Unauthorized",
@@ -395,6 +412,16 @@ describe("error-id classification", () => {
 		}
 	});
 
+	it("retries Go closed-connection transport errors forwarded by a gateway (#15385)", () => {
+		const errorMessage = "read tcp 127.0.0.1:9426->127.0.0.1:9050: use of closed network connection";
+		const id = AIError.classifyMessage(
+			message({ api: "openai-completions", provider: "custom-gateway", model: "mimo", errorId: 0, errorMessage }),
+		);
+		expect(AIError.is(id, AIError.Flag.Transient)).toBe(true);
+		expect(AIError.retriable(id)).toBe(true);
+		expect(AIError.isProviderRetryableError(new Error(errorMessage))).toBe(true);
+	});
+
 	it("retries remote Python HTTP/2 internal and refused stream resets", () => {
 		for (const code of [2, 7]) {
 			const assistant = message({
@@ -447,5 +474,15 @@ describe("error-id classification", () => {
 		expect(AIError.is(id, AIError.Flag.ThinkingLoop)).toBe(true);
 		expect(AIError.is(id, AIError.Flag.UsageLimit)).toBe(true);
 		expect(assistant.errorId).toBe(id);
+	});
+});
+
+describe("network failure sentence retryability", () => {
+	it.each([
+		"Couldn't reach my-llm.lan. Check the URL, your network, or proxy.",
+		"Couldn't connect to 127.0.0.1:8080 (connection refused). Check that the server is running and reachable.",
+		"TLS certificate verification failed. Check the configured certificate chain.",
+	])("keeps a gateway network diagnostic retryable: %s", message => {
+		expect(AIError.retriable(AIError.classifyMessage({ errorMessage: message }))).toBe(true);
 	});
 });

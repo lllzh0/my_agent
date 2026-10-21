@@ -1082,7 +1082,9 @@ const streamOpenAICompletionsOnce = (
 					typeof block.partialArgs === "string" ? parseToolCallArguments(block.partialArgs) : block.partialArgs;
 				delete block.partialArgs;
 				if (block.streamIndex !== undefined) {
-					toolCallBlockByIndex.delete(block.streamIndex);
+					if (toolCallBlockByIndex.get(block.streamIndex) === block) {
+						toolCallBlockByIndex.delete(block.streamIndex);
+					}
 					delete block.streamIndex;
 				}
 				const pendingIndex = pendingToolCallBlocks.indexOf(block);
@@ -1519,7 +1521,11 @@ const streamOpenAICompletionsOnce = (
 							// entries are argument-only. Either way, route by array offset so
 							// sibling calls stay isolated.
 							const unkeyedBatchedArrayEntry = toolCalls.length > 1 && streamIndex === undefined && !toolCall.id;
-							let block = streamIndex !== undefined ? toolCallBlockByIndex.get(streamIndex) : undefined;
+							const indexedBlock = streamIndex !== undefined ? toolCallBlockByIndex.get(streamIndex) : undefined;
+							let block =
+								indexedBlock && (!toolCall.id || !indexedBlock.id || indexedBlock.id === toolCall.id)
+									? indexedBlock
+									: undefined;
 							if (!block && toolCall.id) {
 								block = pendingToolCallBlocks.find(candidate => candidate.id === toolCall.id);
 							}
@@ -2920,6 +2926,19 @@ function mapStopReason(reason: ChatCompletionChunk.Choice["finish_reason"] | str
 			return {
 				stopReason: "error",
 				errorMessage: "Provider returned error finish_reason: insufficient_system_resource",
+			};
+		case "unknown":
+		case "other":
+		case "unspecified":
+		case "finish_reason_unspecified":
+			// The provider ended the stream without saying why (a dropped
+			// connection behind a gateway, a backend that lost the stop code).
+			// Pinning it as a terminal error strands a turn that a resample
+			// fixes. Word the message to match the transient-transport retry
+			// pattern; the retry budget bounds the replay.
+			return {
+				stopReason: "error",
+				errorMessage: `Provider returned error finish_reason: ${normalized}`,
 			};
 		default:
 			return {

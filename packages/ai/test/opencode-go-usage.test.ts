@@ -100,7 +100,12 @@ describe("opencode-go usage provider", () => {
 	});
 
 	it("normalizes both catalog baseUrl forms onto the usage route", async () => {
-		for (const baseUrl of ["https://opencode.ai/zen/go", "https://opencode.ai/zen/go/v1"]) {
+		for (const baseUrl of [
+			"https://opencode.ai/zen/go",
+			"https://opencode.ai/zen/go/v1",
+			"https://opencode.ai/inference/go",
+			"https://opencode.ai/inference/go/v1",
+		]) {
 			const calls: Array<{ url: string; headers: Record<string, string> }> = [];
 			await opencodeGoUsageProvider.fetchUsage(
 				{ provider: "opencode-go", credential: { type: "api_key", apiKey: "sk-test" }, baseUrl },

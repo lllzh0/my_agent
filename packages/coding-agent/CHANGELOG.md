@@ -28,6 +28,8 @@
 
 ### Fixed
 
+- File-session rewrites wait for backpressured writes before publishing a replacement transcript.
+
 - Unstructured subagents produce budget wrap-up reports without exposing tools even on providers that ignore tool choice, then restore the previous tool presentation and write restrictions.
 - Pausing or completing interactive goals restores the previous tool selection, and malformed goal budget numbers are rejected.
 - Deferred subagent cleanup notifications now include disposal of sessions that finish initializing after cancellation.

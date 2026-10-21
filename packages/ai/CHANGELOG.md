@@ -6,6 +6,11 @@
 
 - Removed the `toolNamespacesInfo` stream option; Codex requests no longer send `tool_namespaces_info` turn metadata, and `code_mode_tool_names`/`tool_namespaces_info` are no longer reserved client metadata keys.
 
+### Fixed
+
+- OpenCode Go uses the current inference endpoint while account usage retains its Zen route; DeepSeek tool-call healing, parallel tool-call isolation and transient-network retries are more reliable.
+
+
 ## [18.10.3] - 2026-10-12
 
 ### Breaking Changes

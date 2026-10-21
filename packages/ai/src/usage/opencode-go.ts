@@ -15,6 +15,7 @@ import { DAY_MS, HOUR_MS } from "./shared";
 
 const OPENCODE_GO_PROVIDER = "opencode-go";
 const DEFAULT_ENDPOINT = "https://opencode.ai/zen/go";
+const MODEL_ENDPOINT = "https://opencode.ai/inference/go";
 const USAGE_PATH = "/v1/usage";
 
 /**
@@ -40,7 +41,8 @@ function normalizeBaseUrl(baseUrl?: string): string {
 	// `zen/go/v1` base URLs) so the usage path doesn't double it, while
 	// preserving any path-mounted gateway prefix.
 	const withoutTrailingSlash = baseUrl.trim().replace(/\/+$/, "");
-	return withoutTrailingSlash.replace(/\/v1$/i, "") || DEFAULT_ENDPOINT;
+	const normalized = withoutTrailingSlash.replace(/\/v1$/i, "");
+	return normalized === MODEL_ENDPOINT ? DEFAULT_ENDPOINT : normalized || DEFAULT_ENDPOINT;
 }
 
 function resolveStatus(windowStatus: unknown, usedFraction: number): UsageStatus {

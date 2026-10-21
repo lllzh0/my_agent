@@ -7022,7 +7022,13 @@ function createOpenCodeApiResolution(
 // Resolver rules for the models.dev descriptor path; the per-id pins live in
 // the `api-routes` behavior rules, which also drive the live-discovery mapper.
 const OPENCODE_ZEN_API_RESOLUTION = createOpenCodeApiResolution("https://opencode.ai/zen", "opencode-zen");
-const OPENCODE_GO_API_RESOLUTION = createOpenCodeApiResolution("https://opencode.ai/zen/go", "opencode-go");
+const OPENCODE_GO_BASE_PATH = "https://opencode.ai/inference/go";
+const OPENCODE_GO_API_RESOLUTION = createOpenCodeApiResolution(OPENCODE_GO_BASE_PATH, "opencode-go");
+
+/** OpenCode Go inference endpoint shared with bundled-snapshot generation. */
+export function openCodeGoBaseUrlForApi(api: Api): string {
+	return openCodeBaseUrlForApi(api, OPENCODE_GO_BASE_PATH);
+}
 
 const COPILOT_BASE_URL = "https://api.githubcopilot.com";
 
@@ -7400,7 +7406,7 @@ const OPENCODE_MODELS_DEV_DESCRIPTORS: readonly ModelsDevProviderDescriptor[] = 
 				OPENCODE_ZEN_API_RESOLUTION.defaultResolution,
 			),
 	}),
-	openAiCompletionsDescriptor("opencode-go", "opencode-go", "https://opencode.ai/zen/go/v1", {
+	openAiCompletionsDescriptor("opencode-go", "opencode-go", openCodeGoBaseUrlForApi("openai-completions"), {
 		filterModel: filterActiveToolCallModels,
 		resolveApi: (modelId, raw) =>
 			resolveApiByRules(

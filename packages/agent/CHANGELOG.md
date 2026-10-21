@@ -12,6 +12,8 @@
 
 ### Fixed
 
+- Malformed DeepSeek chat-template calls receive a recovery notice without retaining broken markup in history.
+
 - Fixed a Claude compaction or branch summarizer receiving assistant reasoning from a snapcompact archive rendered under another model, which Claude refuses (`reasoning_extraction`) ([#15436](https://github.com/can1357/oh-my-pi/pull/15436) by [@will-bogusz](https://github.com/will-bogusz))
 
 ## [18.10.3] - 2026-10-12
