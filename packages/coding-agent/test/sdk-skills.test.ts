@@ -389,7 +389,9 @@ This skill is added after session creation.
 			source: "custom",
 		};
 		let notifications = 0;
-		const unsubscribe = session.subscribeCommandMetadataChanged(() => notifications++);
+		const unsubscribe = session.subscribeCommandMetadataChanged(() => {
+			notifications++;
+		});
 		try {
 			await session.setSkills([selected]);
 			await session.refreshSkills();

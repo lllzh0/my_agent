@@ -34,11 +34,11 @@ Files: `packages/ai/src/{dialect/deepseek.ts,utils/dsml-leak.ts,providers/openai
 
 Files: `packages/coding-agent/src/session/agent-session.ts`, `packages/ai/src/utils/{thinking-loop,leaked-thinking-stream}.ts`, upstream prompt-abort/advisor/manual-retry regressions and product goal/resource/resume tests.
 
-- [ ] Import/adapt failing regressions for interrupted setup and a newer turn, manual retry lifting suppression, and background completion respecting a human interrupt.
-- [ ] Adapt `8fbaf75aa288`, `908a90f1f8f7`, `dc8f2a7269a6`, `bb90cc8aa23d` while retaining admission/undo guards.
-- [ ] Backport accounting sequence `a9ff7cbdb3e7 db72f4bf1395 61062af4ac17` after its upstream tests fail on the baseline.
-- [ ] Backport `91326b08e994` to retain tool results during disconnected transition cleanup; verify product transitions remain idle-gated.
-- [ ] Run native lifecycle/accounting regressions plus product goal, retry, resource and resume tests; save a local batch commit.
+- [x] Import/adapt failing regressions for interrupted setup and a newer turn, manual retry lifting suppression, and background completion respecting a human interrupt.
+- [x] Adapt `8fbaf75aa288`, `908a90f1f8f7`, `dc8f2a7269a6`, `bb90cc8aa23d` while retaining admission/undo guards.
+- [x] Backport accounting sequence `a9ff7cbdb3e7 db72f4bf1395 61062af4ac17` after its upstream tests fail on the baseline.
+- [x] Backport `91326b08e994` to retain tool results during disconnected transition cleanup; verify product transitions remain idle-gated.
+- [x] Run native lifecycle/accounting regressions plus product goal, retry, resource and resume tests; save a local batch commit.
 
 ## Task 3: TUI, MCP and bounded file reads
 

@@ -8,6 +8,8 @@
 
 ### Fixed
 
+- Kept provider usage, response ids and attempt timing when the thinking-loop guard aborts a response.
+
 - OpenCode Go uses the current inference endpoint while account usage retains its Zen route; DeepSeek tool-call healing, parallel tool-call isolation and transient-network retries are more reliable.
 
 

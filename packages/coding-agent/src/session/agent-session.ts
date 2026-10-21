@@ -855,6 +855,8 @@ export class AgentSession implements SettingsScope {
 	// Event subscription state
 	#unsubscribeAgent?: () => void;
 	#unsubscribeQueueChange?: () => void;
+	/** Agent message count when {@link #disconnectFromAgent} unsubscribed; messages past it reached no persisting handler. */
+	#disconnectedMessageCount?: number;
 	#cancelExitRecorder?: () => void;
 	#cancelFatalRecoveryHint?: () => void;
 	#exitRecorded = false;
@@ -1080,6 +1082,7 @@ export class AgentSession implements SettingsScope {
 	readonly #streamingEditGuard: StreamingEditGuard;
 	readonly #loopGuards: LoopGuards;
 	#promptInFlightCount = 0;
+	#inFlightEpoch = 0;
 	#abortInProgress = false;
 	/** Prompt, message, and queue submissions that have not
 	 *  yet dispatched a turn, queued, or bailed. Preprocessing (manual-compaction wait, slash
@@ -1184,16 +1187,19 @@ export class AgentSession implements SettingsScope {
 		}
 	}
 
-	#beginInFlight(): void {
+	#beginInFlight(): number {
 		this.#promptInFlightCount++;
 		if (this.#promptInFlightCount === 1) {
 			this.#acquirePowerAssertion();
 		}
+		return this.#inFlightEpoch;
 	}
 
-	#endInFlight(onSettled?: () => void | Promise<void>): void {
+	#endInFlight(epoch: number, onSettled?: () => void | Promise<void>): void {
 		if (onSettled) this.#inFlightSettledCallbacks.push(onSettled);
-		this.#promptInFlightCount = Math.max(0, this.#promptInFlightCount - 1);
+		// An abort already released an older epoch; its late finalizer must not settle a newer turn.
+		// Still flush callbacks if no newer turn is in flight.
+		if (epoch === this.#inFlightEpoch) this.#promptInFlightCount = Math.max(0, this.#promptInFlightCount - 1);
 		if (this.#promptInFlightCount !== 0) return;
 		this.yieldQueue.requestIdleFlush();
 		this.#releasePowerAssertion();
@@ -1368,7 +1374,7 @@ export class AgentSession implements SettingsScope {
 		// delaying the observation's finish and mis-attributing the successor's RPC
 		// progress to this now-dead wake monitor.
 		const generation = this.#promptGeneration;
-		this.#beginInFlight();
+		const inFlightEpoch = this.#beginInFlight();
 		let turnError: unknown;
 		// A pooled-turn yield transition (item-set mutation + prompt rebuild) may be
 		// in flight when the wake lands. Starting the turn on the stale prompt would
@@ -1430,7 +1436,7 @@ export class AgentSession implements SettingsScope {
 					this.#queuedMessageDrainBlocked ||= parkedQueueDrainBlocked;
 				}
 				// Release the in-flight bracket BEFORE settling owned async work.
-				this.#endInFlight();
+				this.#endInFlight(inFlightEpoch);
 				await this.#finishTurnObservation(observation, turnError);
 			});
 	}
@@ -1539,6 +1545,7 @@ export class AgentSession implements SettingsScope {
 	}
 
 	#resetInFlight(): void {
+		this.#inFlightEpoch++;
 		this.#promptInFlightCount = 0;
 		this.yieldQueue.requestIdleFlush();
 		this.#releasePowerAssertion();
@@ -1967,11 +1974,16 @@ export class AgentSession implements SettingsScope {
 			injectIdle: async messages => {
 				const first = messages[0];
 				if (!first) return;
-				this.#beginInFlight();
+				// Keep background results for the next deliberate prompt without resuming a user-stopped run.
+				if (this.#advisors.autoResumeSuppressed) {
+					this.#foldStrandedIrcAsidesIntoContext(messages);
+					return;
+				}
+				const inFlightEpoch = this.#beginInFlight();
 				try {
 					await this.agent.prompt(messages.length === 1 ? first : messages);
 				} finally {
-					this.#endInFlight();
+					this.#endInFlight(inFlightEpoch);
 				}
 			},
 			scheduleIdleFlush: run => {
@@ -3647,6 +3659,26 @@ export class AgentSession implements SettingsScope {
 	}
 
 	/**
+	 * Session transitions (`/compact`, `/new`, session switch) disconnect before
+	 * `await abort()`, so the result the abort gives a running tool reaches no
+	 * persisting handler. Record it before the transition rewrites or leaves the
+	 * session; otherwise its call is left without a result and replay fills in a
+	 * synthetic one. Its call was persisted when the assistant turn ended, before
+	 * the tool started.
+	 */
+	#persistToolResultsEndedWhileDisconnected(): void {
+		const start = this.#disconnectedMessageCount;
+		if (start === undefined) return;
+		const messages = this.agent.state.messages;
+		for (let index = start; index < messages.length; index++) {
+			const message = messages[index];
+			if (message.role === "toolResult") this.#persistSessionMessageIfMissing(message);
+		}
+		// Once per disconnect: the transition may replace the agent's messages next (compaction, reset).
+		this.#disconnectedMessageCount = undefined;
+	}
+
+	/**
 	 * Builds the transient checkpoint-active reminder for a successful
 	 * checkpoint tool result, or undefined otherwise. The reminder is queued as
 	 * steering synchronously in the message_end handler (before any await), so
@@ -4766,7 +4798,7 @@ export class AgentSession implements SettingsScope {
 					}
 				}
 
-				this.#beginInFlight();
+				const inFlightEpoch = this.#beginInFlight();
 				const coalescedSources = new Set([options.source]);
 				const promise = this.#runAgentContinue(signal, request, coalescedSources);
 				const attempt: ActiveAgentContinue = {
@@ -4788,7 +4820,7 @@ export class AgentSession implements SettingsScope {
 						this.#activeAgentContinue = undefined;
 					}
 					this.#usagePreflightReadyForNextModelCall = false;
-					this.#endInFlight();
+					this.#endInFlight(inFlightEpoch);
 				}
 			},
 			{
@@ -5347,6 +5379,7 @@ export class AgentSession implements SettingsScope {
 		if (this.#unsubscribeAgent) {
 			this.#unsubscribeAgent();
 			this.#unsubscribeAgent = undefined;
+			this.#disconnectedMessageCount = this.agent.state.messages.length;
 		}
 		if (this.#unsubscribeQueueChange) {
 			this.#unsubscribeQueueChange();
@@ -5360,6 +5393,7 @@ export class AgentSession implements SettingsScope {
 	 */
 	#reconnectToAgent(): void {
 		if (this.#unsubscribeAgent) return; // Already connected
+		this.#disconnectedMessageCount = undefined;
 		this.#unsubscribeAgent = this.agent.subscribe(this.#handleAgentEvent);
 		this.#unsubscribeQueueChange = this.agent.onQueueChange(() => this.#emitQueueUpdateIfChanged());
 	}
@@ -7852,7 +7886,7 @@ export class AgentSession implements SettingsScope {
 		// every pre-dispatch bail (generation bump from abort, disposal, usage
 		// preflight denial) exits silently, and prompt() uses the outcome to hand
 		// the typed text back to the host instead of losing it.
-		this.#beginInFlight();
+		const inFlightEpoch = this.#beginInFlight();
 		const generation = this.#promptGeneration;
 		this.#promptSequence++;
 		const setupAbort = new AbortController();
@@ -8070,7 +8104,7 @@ export class AgentSession implements SettingsScope {
 			// The per-turn before_agent_start override lives only for this turn.
 			this.#tools.clearTurnSystemPromptOverride();
 			this.#usagePreflightReadyForNextModelCall = false;
-			this.#endInFlight();
+			this.#endInFlight(inFlightEpoch);
 			if (this.#promptSetupAbortController === setupAbort) this.#promptSetupAbortController = undefined;
 		}
 	}
@@ -8640,7 +8674,7 @@ export class AgentSession implements SettingsScope {
 		message: CustomMessage,
 		options?: { acceptTerminalEmptyStop?: boolean },
 	): Promise<boolean> {
-		this.#beginInFlight();
+		const inFlightEpoch = this.#beginInFlight();
 		try {
 			if (!(await this.#runUsageAwarePreflightForNextModelCall())) return false;
 			const acceptTerminalEmptyStop = options?.acceptTerminalEmptyStop === true;
@@ -8654,7 +8688,7 @@ export class AgentSession implements SettingsScope {
 		} finally {
 			this.#usagePreflightReadyForNextModelCall = false;
 			this.#recovery.setAcceptTerminalEmptyStop(false);
-			this.#endInFlight();
+			this.#endInFlight(inFlightEpoch);
 		}
 	}
 
@@ -9768,6 +9802,7 @@ export class AgentSession implements SettingsScope {
 			this.agent.abort(options?.reason);
 			await Promise.all([postPromptDrain, computerControlRevocation]);
 			await this.agent.waitForIdle();
+			this.#persistToolResultsEndedWhileDisconnected();
 			// agent_end maintenance can enqueue a retry after the first cancellation.
 			// Keep the abort barrier up until those handlers settle, then cancel
 			// anything they scheduled before making the session revivable. Only
@@ -10951,10 +10986,13 @@ export class AgentSession implements SettingsScope {
 	}
 
 	/** Retry the last failed assistant turn when idle; opted-in custom notices survive the retry. */
-	retry(options?: { skipCustomTypes?: readonly string[] }): Promise<boolean> {
-		return this.#submissionGuard
+	async retry(options?: { skipCustomTypes?: readonly string[] }): Promise<boolean> {
+		const didRetry = await (this.#submissionGuard
 			? this.#admitSubmission(() => this.#recovery.retry(options))
-			: this.#recovery.retry(options);
+			: this.#recovery.retry(options));
+		// An accepted manual retry resumes the run the user previously interrupted.
+		if (didRetry) this.#advisors.autoResumeSuppressed = false;
+		return didRetry;
 	}
 
 	/**

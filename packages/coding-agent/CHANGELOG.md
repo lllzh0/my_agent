@@ -28,6 +28,8 @@
 
 ### Fixed
 
+- Preserved newer turn state, interrupted tool results and deliberate-stop behavior across abort/retry; fixed a live-skill test callback type.
+
 - File-session rewrites wait for backpressured writes before publishing a replacement transcript.
 
 - Unstructured subagents produce budget wrap-up reports without exposing tools even on providers that ignore tool choice, then restore the previous tool presentation and write restrictions.
