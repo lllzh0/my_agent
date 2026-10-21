@@ -349,6 +349,7 @@ const { session } = await createAgentSession({
 - `getActiveToolNames()`
 - `getAllToolNames()`
 - `setActiveToolsByName(names)`
+- `setSkills(skills)` — replace an explicitly supplied SDK skill list at runtime; refreshes the system prompt and command metadata without enabling automatic discovery. Hosts should wait for an idle session before replacing workflow resources. Sessions using automatic skill discovery should keep using `refreshSkills()`.
 - `refreshMCPTools(mcpTools)`
 
 System prompt is rebuilt to reflect active tool changes.

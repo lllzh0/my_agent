@@ -2,6 +2,7 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import type { Skill } from "@oh-my-pi/pi-coding-agent/extensibility/skills";
 import { scanSkillsFromDir } from "@oh-my-pi/pi-coding-agent/discovery/helpers";
+import { clearCache as clearDiscoveryFileCache } from "@oh-my-pi/pi-coding-agent/capability/fs";
 import { prompt } from "@oh-my-pi/pi-utils";
 import type { Config } from "../config/config";
 import { digest } from "../storage";
@@ -9,6 +10,7 @@ import systemTemplate from "../prompts/system.md" with { type: "text" };
 import lightPrompt from "../prompts/light.md" with { type: "text" };
 
 export interface ResourceEntry {
+	id?: string;
 	kind: string;
 	path: string;
 	hash?: string;
@@ -17,6 +19,10 @@ export interface ResourceEntry {
 	advertised?: boolean;
 	bodyLoaded?: boolean;
 	name?: string;
+}
+
+export function resourceDisabled(config: Config, id: string): boolean {
+	return config.resources.disabled?.includes(id) === true;
 }
 export interface Resources {
 	entries: ResourceEntry[];
@@ -33,6 +39,11 @@ export async function loadResources(config: Config, cwd: string, light: boolean)
 	const systemAdditions: string[] = [];
 	const read = async (kind: string, input: string) => {
 		const file = path.resolve(cwd, input);
+		const id = `${kind}:${file}`;
+		if (resourceDisabled(config, id)) {
+			entries.push({ id, kind, path: file, selected: false, loaded: false });
+			return;
+		}
 		if ((await fs.stat(file)).size > 1_000_000) throw new Error(`指令文件超过 1MB：${file}`);
 		const content = await Bun.file(file).text();
 		entries.push({ kind, path: file, hash: digest(content), selected: true, loaded: true });
@@ -42,10 +53,18 @@ export async function loadResources(config: Config, cwd: string, light: boolean)
 		if (config.resources.extensions.some(extension => extension.enabled)) {
 			throw new Error("OMP 产品入口暂未接入第三方代码扩展；请关闭已选扩展后启动，文件尚未执行。");
 		}
-		for (const input of config.resources.instructions) instructions.push(await read("instruction", input));
-		for (const input of [config.resources.systemPrompt, ...config.resources.appendSystem]) {
-			if (input) systemAdditions.push((await read("system", input)).content);
+		for (const input of config.resources.instructions) {
+			const instruction = await read("instruction", input);
+			if (instruction) instructions.push(instruction);
 		}
+		for (const input of [config.resources.systemPrompt, ...config.resources.appendSystem]) {
+			if (input) {
+				const addition = await read("system", input);
+				if (addition) systemAdditions.push(addition.content);
+			}
+		}
+		// Native discovery caches file contents; explicit reload must read fresh metadata.
+		if (config.resources.skills.length) clearDiscoveryFileCache();
 		for (const input of config.resources.skills) {
 			const selected = await fs.realpath(path.resolve(cwd, input));
 			const isFile = (await fs.stat(selected)).isFile();
@@ -76,16 +95,18 @@ export async function loadResources(config: Config, cwd: string, light: boolean)
 			}));
 			if (!matching.length) throw new Error(`未找到有效技能：${selected}`);
 			for (const skill of matching) {
-				if (skills.some(existing => existing.name === skill.name)) throw new Error(`技能名称重复：${skill.name}`);
-				skills.push(skill);
+				if (entries.some(existing => existing.kind === "skill" && existing.name === skill.name))
+					throw new Error(`技能名称重复：${skill.name}`);
+				const enabled = !resourceDisabled(config, `skill:${skill.name}`);
+				if (enabled) skills.push(skill);
 				entries.push({
 					kind: "skill",
 					path: skill.filePath,
 					name: skill.name,
 					hash: digest(await Bun.file(skill.filePath).text()),
-					selected: true,
-					loaded: true,
-					advertised: !skill.hide,
+					selected: enabled,
+					loaded: enabled,
+					advertised: enabled && !skill.hide,
 					bodyLoaded: false,
 				});
 			}

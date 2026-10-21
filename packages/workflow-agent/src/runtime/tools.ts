@@ -9,6 +9,7 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import type { RunState } from "./state";
 import { digest } from "../storage";
+import { resourceDisabled } from "./resources";
 import { toolDescriptions } from "./tool-prompts";
 import readDescription from "../prompts/tool-read.md" with { type: "text" };
 import mcpListDescription from "../prompts/tool-mcp-list.md" with { type: "text" };
@@ -23,6 +24,17 @@ export const result = (value: unknown) => ({
 	content: [{ type: "text" as const, text: typeof value === "string" ? value : JSON.stringify(value, null, 2) }],
 	details: {},
 });
+
+/** Keep retained tool handles and child sessions subject to the same human switch. */
+export function withResourceSwitch(tool: ToolDefinition, state: RunState): ToolDefinition {
+	return {
+		...tool,
+		execute(...args) {
+			if (resourceDisabled(state.config, `tool:${tool.name}`)) throw new Error(`工具已由用户关闭：${tool.name}`);
+			return tool.execute(...args);
+		},
+	};
+}
 
 // Native file tools interpret URI, selector, wildcard and multi-path syntax.
 // Resolve only plain paths so their eventual target matches our policy check.
@@ -447,5 +459,5 @@ export function productTools(state: RunState, context: ToolSession): ToolDefinit
 			return result(state.jobs.list());
 		},
 	});
-	return tools;
+	return tools.map(tool => withResourceSwitch(tool, state));
 }

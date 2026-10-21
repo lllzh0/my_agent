@@ -166,6 +166,9 @@ async function run(): Promise<void> {
 			host.eventBus,
 		);
 		host.setResumeUI(target => mode.handleResumeSession(target, { keepModel: true }));
+		const unsubscribeResources = host.session.subscribeCommandMetadataChanged(() =>
+			mode.setSlashCommandCatalog(productCommandCatalog(host.state)),
+		);
 		const shutdown = () => {
 			void mode.shutdown();
 		};
@@ -190,6 +193,7 @@ async function run(): Promise<void> {
 			if (values.prompt) await host.session.prompt(values.prompt);
 			await runProductInputLoop(mode, host.session, host.closed);
 		} finally {
+			unsubscribeResources();
 			process.removeListener("SIGTERM", shutdown);
 			await host.dispose();
 		}

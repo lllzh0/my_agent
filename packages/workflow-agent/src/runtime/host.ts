@@ -13,6 +13,7 @@ import { Policy, contained, type Approver, type ApprovalMode } from "../policy/p
 import { createReviewer } from "../policy/reviewer";
 import { atomicJson, readJson, record } from "../storage";
 import { loadResources } from "./resources";
+import { LiveResources } from "./live-resources";
 import type { RunState } from "./state";
 import { productTools } from "./tools";
 import { productExtension } from "../tui/extension";
@@ -161,8 +162,10 @@ export async function openHost(options: HostOptions): Promise<Host> {
 				getApiKey: models.getApiKey,
 				sessionManager: manager,
 				cacheWarming: false,
-				systemPrompt: resources.systemPrompt,
-				contextFiles: resources.instructions,
+				systemPrompt: () => state.resources.systemPrompt,
+				// Product instructions are rendered in the prompt above. Keep native
+				// context discovery closed instead of retaining a stale second copy.
+				contextFiles: [],
 				skills: resources.skills,
 				rules: [],
 				workspaceTree: { rootPath: cwd, rendered: ".\n", truncated: false, totalLines: 1, agentsMdFiles: [] },
@@ -200,6 +203,12 @@ export async function openHost(options: HostOptions): Promise<Host> {
 				],
 			});
 			const session = created.session;
+			state.liveResources = new LiveResources(state, session, [
+				...tools.map(tool => tool.name),
+				...(!light ? ["goal"] : []),
+			]);
+			await state.liveResources.syncTools();
+			session.addDisposer(session.agent.addBeforeModelCallHook(() => state.liveResources!.syncTools()));
 			sessions = new ProductSessions(state, created.session, async next => {
 				const previousRuntime = activeRuntime;
 				activeRuntime = next;
@@ -219,6 +228,7 @@ export async function openHost(options: HostOptions): Promise<Host> {
 				sessions!.assertSubmissionAllowed();
 				models!.assertSubmissionAllowed();
 				state.review!.assertSubmissionAllowed();
+				state.liveResources!.assertSubmissionAllowed();
 			});
 			if (created.session.extensionRunner) created.session.extensionRunner.inputFailurePolicy = "handled";
 			const streamBuffer = created.session.rawSseDebugBuffer;
@@ -283,6 +293,7 @@ export async function openHost(options: HostOptions): Promise<Host> {
 				dispose() {
 					disposing ??= (async () => {
 						try {
+							await state.liveResources?.close();
 							await state.review?.close();
 							await sessions!.close();
 							await session.dispose();

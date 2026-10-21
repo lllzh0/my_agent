@@ -42,6 +42,7 @@ export class ProductSessions {
 		return this.#closed;
 	}
 	assertSubmissionAllowed(): void {
+		this.#state.liveResources?.assertSubmissionAllowed();
 		if (this.#state.review?.busy) throw new Error("正在审查代码，请先取消或等待完成。");
 		if (this.#state.models?.busy) throw new Error("正在切换模型，请稍后再恢复会话。");
 		if (this.#closed) throw new Error("会话正在关闭，无法接收新输入。");

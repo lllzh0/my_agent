@@ -371,4 +371,37 @@ This skill is added after session creation.
 		// No warnings since we didn't discover
 		expect(session.skillWarnings).toEqual([]);
 	});
+
+	it("replaces an explicit skill selection live and keeps excluded project skills out after refresh", async () => {
+		const { session } = await createAgentSession({
+			cwd: tempDir,
+			agentDir: tempDir,
+			sessionManager: SessionManager.inMemory(tempDir),
+			modelRegistry: sharedModelRegistry,
+			settings: createIsolatedSkillsSettings(),
+			skills: [],
+		});
+		const selected: Skill = {
+			name: "selected-live",
+			description: "Explicitly selected live",
+			filePath: path.join(skillsDir, "SKILL.md"),
+			baseDir: skillsDir,
+			source: "custom",
+		};
+		let notifications = 0;
+		const unsubscribe = session.subscribeCommandMetadataChanged(() => notifications++);
+		try {
+			await session.setSkills([selected]);
+			await session.refreshSkills();
+			expect(session.skills.map(skill => skill.name)).toEqual(["selected-live"]);
+			expect(session.systemPrompt.join("\n")).toContain("selected-live");
+			await session.setSkills([]);
+			expect(session.systemPrompt.join("\n")).not.toContain("selected-live");
+			expect(session.skills).toEqual([]);
+			expect(notifications).toBe(3);
+		} finally {
+			unsubscribe();
+			await session.dispose();
+		}
+	});
 });

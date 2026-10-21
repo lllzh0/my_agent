@@ -99,20 +99,26 @@ export class Sandbox implements ExecutionBackend {
 		// Runtime 0.0.50 overrides TMPDIR with /tmp/claude without creating it.
 		// Set the owned temporary path inside the sandbox, after its environment setup.
 		const temporary = `'${this.#scratch.replace(/'/g, `'\\''`)}'`;
-		const gitDirectory = join(await realpath(this.workspace), ".git");
+		const workspace = await realpath(this.workspace);
+		const gitDirectory = join(workspace, ".git");
+		const filesystem = SandboxManager.getConfig()!.filesystem;
 		const wrapped = await SandboxManager.wrapWithSandbox(
 			`export TMPDIR=${temporary}; ${command}`,
 			"/bin/bash",
-			scope.gitWrite
-				? {
-						filesystem: {
-							...SandboxManager.getConfig()!.filesystem,
-							denyWrite: SandboxManager.getConfig()!.filesystem.denyWrite.filter(
-								value => value !== gitDirectory,
-							),
-						},
-					}
-				: undefined,
+			{
+				filesystem: {
+					...filesystem,
+					// Resource selection can change while the process stays alive.
+					allowRead: [
+						workspace,
+						this.#scratch,
+						...(await Promise.all(this.readRoots.map(root => realpath(root)))),
+					],
+					denyWrite: scope.gitWrite
+						? filesystem.denyWrite.filter(value => value !== gitDirectory)
+						: filesystem.denyWrite,
+				},
+			},
 			signal,
 		);
 		return protectMacOSCommand(wrapped, await realpath(this.protectedHome), this.#scratch, scope.gitWrite);

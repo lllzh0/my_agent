@@ -11,6 +11,7 @@ import type { Change } from "../src/changes/journal";
 import { ChatTranscriptBuilder } from "@oh-my-pi/pi-tui/chat/chat-transcript-builder";
 import { initTheme } from "@oh-my-pi/pi-tui/theme";
 import type { TUI } from "@oh-my-pi/pi-tui";
+import { resourceScenario } from "./resource-scenarios";
 
 const options = JSON.parse(process.argv[2]) as {
 	home: string;
@@ -233,7 +234,8 @@ try {
 					(await models.registry.getApiKey(host.session.model!)) === "fake-local-key" ? "original" : "second",
 			};
 			if (!submissionBlocked && options.promptAfterCommands) await host.session.prompt(options.promptAfterCommands);
-		} else if (options.action === "user-bash")
+		} else if (options.action === "resources") actionResult = await resourceScenario(host, options.command!);
+		else if (options.action === "user-bash")
 			actionResult = await host.session.executeBash(options.command ?? "printf unsafe");
 		else if (options.action === "user-python")
 			actionResult = await host.session.executePython(options.command ?? "print('unsafe')");

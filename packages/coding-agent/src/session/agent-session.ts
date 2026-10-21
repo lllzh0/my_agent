@@ -6378,6 +6378,11 @@ export class AgentSession implements SettingsScope {
 		return this.#tools.getSelectedMCPToolNames();
 	}
 
+	/** Replace an explicitly supplied SDK skill list and refresh prompt/command metadata. */
+	setSkills(skills: readonly Skill[]): Promise<void> {
+		return this.#tools.setSkills(skills);
+	}
+
 	/** Rediscovers reloadable skills and refreshes prompt metadata. */
 	refreshSkills(): Promise<void> {
 		return this.#tools.refreshSkills();

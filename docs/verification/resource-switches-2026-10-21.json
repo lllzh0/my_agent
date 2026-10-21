@@ -1,0 +1,164 @@
+{
+  "date": "2026-10-21",
+  "feature": "General live resource switches",
+  "scope": [
+    "registered product tools",
+    "explicitly selected skills",
+    "selected instruction files",
+    "custom/append system prompt files"
+  ],
+  "status": "implemented; final targeted, lifecycle and package checks passed",
+  "full_regression_before_final_cache_and_equal_count_fixes": {
+    "team": {
+      "log": "/Users/ly/Desktop/my_agent/artifacts/resources-team-full.log",
+      "pass": 407,
+      "skip": 6,
+      "fail": 0
+    },
+    "main": {
+      "log": "/Users/ly/Desktop/my_agent/artifacts/resources-main-full.log",
+      "pass": 265,
+      "skip": 6,
+      "fail": 0
+    }
+  },
+  "final_targeted": {
+    "team": {
+      "log": "/Users/ly/Desktop/my_agent/artifacts/resources-team-focused-final.log",
+      "pass": 20,
+      "skip": 0,
+      "fail": 0
+    },
+    "main": {
+      "log": "/Users/ly/Desktop/my_agent/artifacts/resources-main-focused-final.log",
+      "pass": 11,
+      "skip": 0,
+      "fail": 0
+    }
+  },
+  "native_sdk_regressions": [
+    {
+      "log": "/Users/ly/Desktop/my_agent/artifacts/resources-sdk-final.log",
+      "pass": 38,
+      "skip": 0,
+      "fail": 0
+    },
+    {
+      "log": "/Users/ly/Desktop/my_agent/artifacts/resources-sdk-extra.log",
+      "pass": 66,
+      "skip": 0,
+      "fail": 0
+    }
+  ],
+  "checks": {
+    "team": "bun run check: exit 0",
+    "main": "bun run check: exit 0",
+    "native_changed_files": "oxlint and oxfmt --check: exit 0",
+    "git_diff_check": "both worktrees passed"
+  },
+  "review": {
+    "independent_findings": [
+      "Main menu admission made resource edits appear busy",
+      "Warm sandbox retained outdated resource read roots"
+    ],
+    "resolution": "both reproduced/fixed and regression-tested",
+    "primary_followup_findings": [
+      "Equal-size tool replacement skipped team synchronization",
+      "OMP skill file cache retained outdated metadata on reload"
+    ],
+    "primary_resolution": "both reproduced/fixed and regression-tested",
+    "independent_final_signoff": false,
+    "note": "Independent reviewer hit its usage limit during final reporting; primary agent completed final diff review."
+  },
+  "unverified": [
+    "Human terminal visual acceptance",
+    "Real model/provider behavior",
+    "Six opt-in real macOS sandbox integration checks"
+  ],
+  "boundaries": [
+    "Existing chat context is retained",
+    "Resource selection persists in the shared config home",
+    "Unmatched older session resources still block resume",
+    "MCP service configuration still needs restart",
+    "Executable OMP extensions remain disabled"
+  ],
+  "git": {
+    "committed": false,
+    "pushed": false
+  },
+  "worktrees": [
+    {
+      "path": "/Users/ly/Desktop/my_agent/my_agent",
+      "branch": "codex/team-scheduler-wait",
+      "base_commit": "17aeec6d4003e77e9aeb259cc4e06452871963c7",
+      "source_sha256": {
+        "packages/coding-agent/src/session/agent-session.ts": "d683269f509cec43557bfac7d98a08113cf329c1f2d7637bac27a2df515a05a8",
+        "packages/coding-agent/src/session/session-tools.ts": "6affe034d4884a233993475c97dfeab69dbcdc271212652522c50c2c1a70a1df",
+        "packages/coding-agent/test/sdk-skills.test.ts": "95c18db13b0087a3247cc58a4b6b6fc87cfd6d85ec55f0b49ecf0ae1ec55b121",
+        "packages/workflow-agent/src/cli.ts": "7baeac98eef0adf8b9f3759a8cad3130435f11225e1c15a2b0aac0e93de000e5",
+        "packages/workflow-agent/src/collaboration/context.ts": "2bf34ff10744de6dd9a7adb032637fc81e723ea19a417b8340392711a0fd1bfc",
+        "packages/workflow-agent/src/collaboration/runner.ts": "b45a88c986f115ae0791c650d8874459563885ddb1238e296024f4fec4799704",
+        "packages/workflow-agent/src/collaboration/tools.ts": "2e648099c676fcd243f9e00ab0c836155d5dc6bf264405acad636ea4fa1da193",
+        "packages/workflow-agent/src/config/config.ts": "4e56170ce8d123bdc66acdfedecb115f00b5f444767715a5c3aefc9dd3ae6406",
+        "packages/workflow-agent/src/models/controller.ts": "75cc83278f55b1ff7410f522180609a8695977a2dc08b4e4e16c611721b2c125",
+        "packages/workflow-agent/src/processes/sandbox.ts": "4b46dd564c55a5c67dba16af248d7b791ae5a69b43940f1d81fd7218d09553a3",
+        "packages/workflow-agent/src/review/runner.ts": "4aff947372dff2d39b7e3bdddff0ccc5910f0ee3fcc143b5b86dfb6b475dedb9",
+        "packages/workflow-agent/src/runtime/host.ts": "033557e08e96d66dfc190dc8da17407e95ef45b915b99c34e3fdd27b276bd82c",
+        "packages/workflow-agent/src/runtime/live-resources.ts": "4f63e04968d5699388330c19c691843da79a41d9aa9570ead45d5783d7a753d1",
+        "packages/workflow-agent/src/runtime/resources.ts": "d5154e09fa8b218080e23c2a18da5ec3314e80a8db8db19bc33ab5db484e5d14",
+        "packages/workflow-agent/src/runtime/sessions.ts": "8e5201ccfd0afcfc2c76e7ac09cee62fe252d0ea5d1c77d169501467cf5cb2f3",
+        "packages/workflow-agent/src/runtime/state.ts": "f5f1e0940751950474c53641d0b13b06a977d78cbe41dc8cceec988fecf63233",
+        "packages/workflow-agent/src/runtime/tools.ts": "95973301a50c448f4e4458ee16840abe6a73d38f4594e75ad1b3006d85c52d1c",
+        "packages/workflow-agent/src/tui/commands.ts": "cd832b174d07b1dc0be54f02eef800db094b4c72c97fad016be66885f921a31e",
+        "packages/workflow-agent/src/tui/extension.ts": "089c22e69e1809e8fb31d5f480c196f7491a1eac29dd77e00ac8be3d84a9e291",
+        "packages/workflow-agent/src/tui/resources.ts": "890057264089580a9ad656c3dec5a8eda1c147b55ba04c0190a138983596fce4",
+        "packages/workflow-agent/src/tui/team.ts": "61000b1ce7f25614910e000a453649cd2ccb8c4f67639ebcc24bc99457fda526",
+        "packages/workflow-agent/test/collaboration-resources.test.ts": "0b41dbf6588d3a428cefc379870127da4a162beddf7d8c8f189895a342795017",
+        "packages/workflow-agent/test/host-worker.ts": "0679b0f0e36c89ebc061977cc35e2b2cb92d6109afeeafc1f682e8bd79d71f57",
+        "packages/workflow-agent/test/resource-scenarios.ts": "4c0acfbf128f1c6d43a51f79a5f3e0eb9abd0b6cd4025b7271e8f0dbd788877b",
+        "packages/workflow-agent/test/resources.test.ts": "9f1a7f07676f68291fc4a735a8ee7d51386e16201499688cb13931a570abcd73",
+        "packages/workflow-agent/test/sandbox-resources.test.ts": "a15ea38f3bba0411ee979700e674d085c4fcde98816304d23e76ba8888b979c0"
+      }
+    },
+    {
+      "path": "/Users/ly/Desktop/my_agent/.worktrees/main-sync",
+      "branch": "main",
+      "base_commit": "a6d898c754b60a3621f45d18cf9865758b0ba18b",
+      "source_sha256": {
+        "packages/coding-agent/src/session/agent-session.ts": "d683269f509cec43557bfac7d98a08113cf329c1f2d7637bac27a2df515a05a8",
+        "packages/coding-agent/src/session/session-tools.ts": "6affe034d4884a233993475c97dfeab69dbcdc271212652522c50c2c1a70a1df",
+        "packages/coding-agent/test/sdk-skills.test.ts": "95c18db13b0087a3247cc58a4b6b6fc87cfd6d85ec55f0b49ecf0ae1ec55b121",
+        "packages/workflow-agent/src/cli.ts": "7baeac98eef0adf8b9f3759a8cad3130435f11225e1c15a2b0aac0e93de000e5",
+        "packages/workflow-agent/src/config/config.ts": "7ad2f569a917f54167dc3a542c7ed7e9e50732b81c723db2460cfca96e42d09b",
+        "packages/workflow-agent/src/models/controller.ts": "62c94fbe08d8676eef1d6c574104b244b09f89e0e73d7110f0a0fd3d683f1214",
+        "packages/workflow-agent/src/processes/sandbox.ts": "4b46dd564c55a5c67dba16af248d7b791ae5a69b43940f1d81fd7218d09553a3",
+        "packages/workflow-agent/src/review/runner.ts": "a0f78a113c0b3b6a6eb3ca7ba44ca63b1352f94c77a1411ce49ad54a2142d814",
+        "packages/workflow-agent/src/runtime/host.ts": "1b1223fd47c13d7aa55582a5c05348cae0362c1243cb56edd502f645190b4cab",
+        "packages/workflow-agent/src/runtime/live-resources.ts": "ae4917691327ca82b42a992d056408eebeae15a8558450ffe9db7592aaa3e1c3",
+        "packages/workflow-agent/src/runtime/resources.ts": "d5154e09fa8b218080e23c2a18da5ec3314e80a8db8db19bc33ab5db484e5d14",
+        "packages/workflow-agent/src/runtime/sessions.ts": "c9f0d200d19adbe054ee4e95753c9d4380a47fa6c4007dab7e9a98f9db05c623",
+        "packages/workflow-agent/src/runtime/state.ts": "e36ec3681c3e0a7cc1dece9902757ddcebeab9d104cb1211f168955ab7416f6d",
+        "packages/workflow-agent/src/runtime/tools.ts": "e7f47bb98fc147d011ca271c55410b3f705d75700443496f1d9d78153a4f9509",
+        "packages/workflow-agent/src/tui/commands.ts": "41e3be8eedcb7b09d38575c74ce3762554c813df72d88ce954c6af1005a80aab",
+        "packages/workflow-agent/src/tui/extension.ts": "6c28e084e83839da4dadb03efa1482d3b83f5566b11fc53df7d4540aa6335651",
+        "packages/workflow-agent/src/tui/resources.ts": "0ec9d959802de34619437157d401c723edbf9e106a721c527bfdbca0d008873f",
+        "packages/workflow-agent/test/host-worker.ts": "0864c6f549a3c6f0a5712a7871fd8cc5caf9747ac6e6c946485379bec7ed77b7",
+        "packages/workflow-agent/test/resource-scenarios.ts": "4c0acfbf128f1c6d43a51f79a5f3e0eb9abd0b6cd4025b7271e8f0dbd788877b",
+        "packages/workflow-agent/test/resources.test.ts": "9f1a7f07676f68291fc4a735a8ee7d51386e16201499688cb13931a570abcd73",
+        "packages/workflow-agent/test/sandbox-resources.test.ts": "a15ea38f3bba0411ee979700e674d085c4fcde98816304d23e76ba8888b979c0"
+      }
+    }
+  ],
+  "final_lifecycle": {
+    "team": {
+      "log": "/Users/ly/Desktop/my_agent/artifacts/resources-team-lifecycle-final.log",
+      "pass": 45,
+      "fail": 0
+    },
+    "main": {
+      "log": "/Users/ly/Desktop/my_agent/artifacts/resources-main-lifecycle-final.log",
+      "pass": 46,
+      "fail": 0
+    }
+  }
+}

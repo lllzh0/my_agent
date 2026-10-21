@@ -4,6 +4,8 @@
 
 ### Added
 
+- Embedded hosts can replace explicitly supplied skills at runtime while keeping automatic skill discovery disabled.
+
 - Embedded hosts can observe active ephemeral turns and guard their admission during model/session transitions.
 
 - Embedded hosts can explicitly admit the hidden native goal tool while keeping other built-in tools restricted, and cancel interactive input waits with an optional abort signal.

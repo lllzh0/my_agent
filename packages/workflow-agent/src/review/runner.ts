@@ -6,6 +6,7 @@ import type { ToolSession } from "@oh-my-pi/pi-coding-agent/tools";
 import { Policy } from "../policy/policy";
 import type { RunState } from "../runtime/state";
 import { productTools } from "../runtime/tools";
+import { resourceDisabled } from "../runtime/resources";
 import { atomicJson, readJson, record, redact } from "../storage";
 import { collectProductDiff, type ProductDiffSnapshot } from "./diff";
 import systemPrompt from "../prompts/review/system.md" with { type: "text" };
@@ -72,6 +73,7 @@ export class ProductReview {
 		this.#controller?.abort();
 	}
 	run(base?: string, signal?: AbortSignal): Promise<ProductReviewResult> {
+		this.#state.liveResources?.assertSubmissionAllowed();
 		this.assertSubmissionAllowed();
 		const state = this.#state;
 		const session = this.#session;
@@ -133,7 +135,9 @@ export class ProductReview {
 			hasEditTool: false,
 		};
 		const childState: RunState = { ...state, policy };
-		const tools = productTools(childState, context).filter(tool => READ_TOOLS.has(tool.name));
+		const tools = productTools(childState, context).filter(
+			tool => READ_TOOLS.has(tool.name) && !resourceDisabled(state.config, `tool:${tool.name}`),
+		);
 		const cleanups: Promise<void>[] = [];
 		let startedRequests = 0;
 		let exhausted = false;

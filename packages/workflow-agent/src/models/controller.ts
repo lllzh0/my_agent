@@ -356,6 +356,7 @@ export class ProductModels {
 		if (this.#state.jobs.hasActiveJobs) throw new Error("后台任务仍在运行或等待批准；先停止任务再切换模型。");
 	}
 	async select(key: string, effort?: ConfiguredThinkingLevel): Promise<void> {
+		this.#state.liveResources?.assertSubmissionAllowed();
 		this.assertSubmissionAllowed();
 		this.#assertIdle();
 		const next = this.bind({ model: key, effort });

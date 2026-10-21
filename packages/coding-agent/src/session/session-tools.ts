@@ -1730,6 +1730,23 @@ export class SessionTools {
 		};
 	}
 
+	/** Replace an SDK-owned skill list without enabling ambient discovery. */
+	setSkills(skills: readonly Skill[]): Promise<void> {
+		return this.runToolRegistryMutation(async () => {
+			if (this.#skillsReloadable) throw new Error("setSkills requires an explicitly supplied SDK skill list");
+			const previous = this.#skills;
+			this.#skills = [...skills];
+			try {
+				await this.refreshBaseSystemPrompt();
+			} catch (error) {
+				this.#skills = previous;
+				throw error;
+			}
+			if (this.#host.agentKind() === "main") setActiveSkills(this.#skills);
+			this.#host.notifyCommandMetadataChanged();
+		});
+	}
+
 	/** Rediscovers reloadable skills and refreshes prompt metadata. */
 	async refreshSkills(): Promise<void> {
 		resetCapabilities();

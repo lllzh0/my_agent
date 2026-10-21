@@ -14,6 +14,8 @@ import { selectModel } from "./model";
 import { resumeFromCommand } from "./resume";
 import { collectProductDiff } from "../review/diff";
 import { reviewFromCommand } from "./review";
+import { resourcesFromCommand } from "./resources";
+import { resourceDisabled } from "../runtime/resources";
 
 const commands: SlashCommand[] = [
 	{ name: "help", description: "显示当前产品支持的命令" },
@@ -34,6 +36,12 @@ const commands: SlashCommand[] = [
 	{ name: "fresh", description: "重建模型连接状态，保留本地聊天" },
 	{ name: "usage", description: "查看本会话本地 token 和费用统计" },
 	{ name: "tools", description: "查看实际工具与资源清单" },
+	{
+		name: "resources",
+		description: "热切换工具、技能、指令和附加提示词",
+		argumentHint: "[list|on <ID>|off <ID>|reload]",
+		allowArgs: true,
+	},
 	{
 		name: "jobs",
 		description: "查看后台任务、输出或停止任务",
@@ -168,6 +176,10 @@ export async function handleProductCommand(
 	}
 	if (command.name === "agent") return;
 	if (command.name === "goal") {
+		if (resourceDisabled(state.config, "tool:goal") && !/^(?:show|pause|drop)(?:\s|$)/i.test(args)) {
+			ctx.ui.notify("goal 工具已关闭；请先 /resources on tool:goal。", "info");
+			return { handled: true };
+		}
 		if (state.light) {
 			ctx.ui.notify("轻量模式没有 goal 工具；请正常启动后使用 /goal。", "info");
 			return { handled: true };
@@ -206,6 +218,9 @@ export async function handleProductCommand(
 	};
 	try {
 		switch (command.name) {
+			case "resources":
+				await resourcesFromCommand(state, ctx, args);
+				break;
 			case "model":
 				await selectModel(state, ctx, args);
 				break;

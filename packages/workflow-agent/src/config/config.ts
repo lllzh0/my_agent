@@ -44,6 +44,8 @@ export interface Config {
 		extensions: { path: string; enabled: boolean; trustedDigest?: string }[];
 		systemPrompt?: string;
 		appendSystem: string[];
+		/** Resource ids disabled by the human; paths remain available for re-enabling. */
+		disabled?: string[];
 	};
 	permissions: { readRoots: string[]; writeRoots: string[]; allowNetwork: boolean; approval?: "manual" | "auto" };
 	execution?: { envNames: string[] };
@@ -158,6 +160,12 @@ export function validateConfig(input: unknown): Config {
 	if (new Set(keys).size !== keys.length)
 		throw new Error("模型连接 key 重复；相同供应商/型号的不同连接须分别指定 key");
 	const resources = record(raw.resources, "resources");
+	if (
+		resources.disabled !== undefined &&
+		(!Array.isArray(resources.disabled) ||
+			!resources.disabled.every(id => typeof id === "string" && /^(tool|skill|instruction|system):.+$/s.test(id)))
+	)
+		throw new Error("resources.disabled 必须是 tool、skill、instruction 或 system 的资源 ID 列表");
 	for (const key of ["instructions", "skills", "appendSystem"])
 		if (!Array.isArray(resources[key]) || !(resources[key] as unknown[]).every(x => typeof x === "string"))
 			throw new Error(`resources.${key} 必须是路径列表`);
