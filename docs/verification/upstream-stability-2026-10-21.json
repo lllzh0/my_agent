@@ -1,0 +1,177 @@
+{
+  "date": "2026-10-21",
+  "feature": "Selected OMP stability backports",
+  "upstream_snapshot": "57b56631ee009098a78d9badf91afc3a48eef32e",
+  "base_version": "18.10.3",
+  "dependency_or_version_changes": false,
+  "savepoints": {
+    "main": "5ae2bb2f29f39bf1879af3cca52759e11b4a09f8",
+    "team": "aa37e2fe13d5844335afbb27577593e09ac16dc8"
+  },
+  "code_commits": {
+    "main": [
+      "7216f18627",
+      "115d1d3444",
+      "2b87fdd96b"
+    ],
+    "team": [
+      "cf2757bef0",
+      "3f9d8b7c9f",
+      "6e0f44695e"
+    ]
+  },
+  "integration": {
+    "main_branch": "main",
+    "team_branch": "codex/team-scheduler-wait",
+    "method": "fast-forward main, cherry-pick only shared backport batches to team",
+    "backport_paths_compared": 55,
+    "shared_package_trees_identical": true,
+    "product_source_unchanged_from_savepoints": true,
+    "main_has_collaboration_code": false,
+    "pushed": false
+  },
+  "tests": {
+    "product_main_full": {
+      "log": "/Users/ly/Desktop/my_agent/artifacts/upstream-product-main-full.log",
+      "pass": 266,
+      "skip": 6,
+      "fail": 0,
+      "command": "bun test (packages/workflow-agent in main worktree)"
+    },
+    "product_team_full": {
+      "log": "/Users/ly/Desktop/my_agent/artifacts/upstream-product-team-full.log",
+      "pass": 409,
+      "skip": 6,
+      "fail": 0,
+      "command": "bun test (packages/workflow-agent in collaboration checkout)"
+    },
+    "ai_final": {
+      "log": "/Users/ly/Desktop/my_agent/artifacts/upstream-ai-final.log",
+      "pass": 232,
+      "fail": 0,
+      "skip": 0,
+      "command": "bun test test/stream-markup-healing.test.ts test/openai-completions-thought-signature.test.ts test/openai-completions-error-finish-reason.test.ts test/error-id.test.ts test/opencode-go-endpoint.test.ts test/opencode-go-usage.test.ts test/thinking-loop.test.ts"
+    },
+    "native_final": {
+      "log": "/Users/ly/Desktop/my_agent/artifacts/upstream-native-final.log",
+      "pass": 138,
+      "fail": 0,
+      "skip": 0,
+      "command": "PI_CONFIG_DIR=/private/tmp/omp-backport-config PI_CODING_AGENT_DIR=/private/tmp/omp-backport-agent bun test test/agent-session-prompt-abort-race.test.ts test/agent-session-advisor-suppression.test.ts test/agent-session-manual-retry.test.ts test/agent-session-compact-running-tool.test.ts test/session-storage-streaming.test.ts test/sdk-skills.test.ts test/mcp-dispatched-replay.test.ts test/mcp-stdio-cancellation.test.ts test/mcp-http-transport.test.ts test/mcp-stdio-transport.test.ts test/mcp-legacy-sse-transport.test.ts test/read-leading-context-budget.test.ts test/tools/read-truncation-metadata.test.ts"
+    },
+    "native_read_tool": {
+      "log": "/Users/ly/Desktop/my_agent/artifacts/upstream-native-read-broad.log",
+      "pass": 75,
+      "fail": 0,
+      "skip": 0,
+      "command": "PI_CONFIG_DIR=/private/tmp/omp-backport-config PI_CODING_AGENT_DIR=/private/tmp/omp-backport-agent bun test test/tools.test.ts --test-name-pattern 'read tool'"
+    },
+    "tui_final": {
+      "log": "/Users/ly/Desktop/my_agent/artifacts/upstream-tui-green.log",
+      "pass": 10,
+      "fail": 0,
+      "skip": 0,
+      "command": "bun test test/json-tree-render.test.ts test/tools-default-card.test.ts test/markdown-table-wide-cell.test.ts"
+    },
+    "fetch_retry": {
+      "log": "/Users/ly/Desktop/my_agent/artifacts/upstream-fetch-green.log",
+      "pass": 37,
+      "fail": 0,
+      "skip": 0,
+      "command": "bun test test/fetch-retry.test.ts"
+    }
+  },
+  "checks": {
+    "ai": {
+      "command": "bun run check",
+      "exit_code": 0,
+      "log": "/Users/ly/Desktop/my_agent/artifacts/upstream-ai-check2.log"
+    },
+    "catalog": {
+      "command": "bun run check",
+      "exit_code": 0,
+      "log": "/Users/ly/Desktop/my_agent/artifacts/upstream-catalog-check.log"
+    },
+    "utils": {
+      "command": "bun run check",
+      "exit_code": 0,
+      "log": "/Users/ly/Desktop/my_agent/artifacts/upstream-utils-final-check.log"
+    },
+    "agent": {
+      "command": "bun run check",
+      "exit_code": 0,
+      "log": "/Users/ly/Desktop/my_agent/artifacts/upstream-agent-check.log"
+    },
+    "coding_agent": {
+      "command": "bun run check",
+      "exit_code": 0,
+      "log": "/Users/ly/Desktop/my_agent/artifacts/upstream-native-check3.log"
+    },
+    "tui": {
+      "command": "bun run check",
+      "exit_code": 0,
+      "log": "/Users/ly/Desktop/my_agent/artifacts/upstream-tui-check.log"
+    },
+    "product_main": {
+      "command": "bun run check",
+      "exit_code": 0,
+      "log": "/Users/ly/Desktop/my_agent/artifacts/upstream-product-main-check.log"
+    },
+    "product_team": {
+      "command": "bun run check",
+      "exit_code": 0,
+      "log": "/Users/ly/Desktop/my_agent/artifacts/upstream-product-team-check.log"
+    }
+  },
+  "catalog_verification": "Exactly 44 OpenCode Go rows changed only baseUrl from zen/go to inference/go; all other provider/model metadata unchanged.",
+  "review": {
+    "performed_by": "primary agent",
+    "scope": [
+      "upstream attribution and clean patch versus local adaptation",
+      "submission/undo/authorization guards",
+      "MCP replay/cancellation and environment/cleanup",
+      "session state/history preservation",
+      "TUI representation/size/id loss",
+      "catalog metadata scope and branch separation"
+    ],
+    "independent_final_signoff": false,
+    "limitation": "Reviewer dispatch reached usage limits during the upstream audit; final review was performed by the primary agent."
+  },
+  "adaptation_boundaries": [
+    "DeepSeek reasoning-replay change reverted upstream was not imported",
+    "89ac5cf9666a only preserves fetch cause and retry classification; no new network-cause subsystem",
+    "Generic tool cards only; no unrelated LSP/native task renderer overhaul",
+    "e68cb22126cb cap-bypass fix is unnecessary on this fork because ordinary file output still always passes spill/inline guards",
+    "Explicit custom model baseUrl stays authoritative"
+  ],
+  "unverified": [
+    "Real OpenCode Go/Tavily/MCP services",
+    "Human terminal visual acceptance",
+    "Six opt-in real macOS sandbox integration checks",
+    "Independent final reviewer signoff"
+  ],
+  "source_sha256": {
+    "packages/agent/src/prompts/dsml-tool-call-leak.md": "c47ad2f7a63a7231455838db5f7c41150bc636ba427bb17908eec9d7427e4c97",
+    "packages/ai/src/dialect/deepseek.ts": "5573f0d6bd3f6f576234f314a21885c28bc7d0aee35ea944569f3b1825bd3941",
+    "packages/ai/src/error/flags.ts": "0d7a1cda2cdcb18e6ec1632b7ca4151188a567d7990fa484339f48fd9885d062",
+    "packages/ai/src/providers/openai-completions.ts": "7d20590c4c734cba1a7b10b5a677c3e63d4a8f5bbeb98e3f13c52b410ff5c585",
+    "packages/ai/src/usage/opencode-go.ts": "0820c8d233ddf5d6471fa92132ef8595975f7618cc38a54fcb2f2fdd560a5fad",
+    "packages/ai/src/utils/dsml-leak.ts": "d0ab88858dfda0ecec787795bc78d31891a86e8669808a58f960183a327048ed",
+    "packages/ai/src/utils/leaked-thinking-stream.ts": "49ed7ed542c4f5d67fbe6d89073f26401113af1499743c43c8d3b9dde8a61290",
+    "packages/ai/src/utils/thinking-loop.ts": "21e86407a9c9394c74f9be89016359f6426696fb1b1531453ec42e7f3d3ac2e0",
+    "packages/catalog/scripts/generate-models.ts": "c4266882eac3d28b502b038969dc6de77cb55f525438b03b425746b956286ca0",
+    "packages/catalog/src/models.json": "9e904d1c4ad8dc97de44fd0ed705ef93ead9453ac4c04d43e9a6ce76b4b4e82d",
+    "packages/catalog/src/provider-models/openai-compat.ts": "55268bbb1b96547640938c68ad40f4d0bf260656cddeb6f7666f0f691d38250f",
+    "packages/coding-agent/src/mcp/errors.ts": "d08abb0fbac3b687edf4c72a7778c40dc2254cf9eceeb732a666c8fa45472c6f",
+    "packages/coding-agent/src/mcp/transports/http.ts": "3b217d3619e040c8247762343ab1188a05e50ea95dbdc2617b50bf8a290844e5",
+    "packages/coding-agent/src/mcp/transports/sse.ts": "d7b7c46267e946ba29d7ca0512e6781cb985dac86a20db25ee5d3dab8a471a9b",
+    "packages/coding-agent/src/mcp/transports/stdio.ts": "6aecce8a8f6c729a619c0803b92b5cd212336b318cde6dd7816240efc1af5b57",
+    "packages/coding-agent/src/session/agent-session.ts": "17c6fe3a0cf2d9490b2d950c0604788039b7b610d0d24fec94171af02529b243",
+    "packages/coding-agent/src/session/session-storage.ts": "38d7a15472610dc8f4f3d2f150efa7305220b6047c9e7226327712c68b824ba2",
+    "packages/coding-agent/src/tools/read.ts": "8a9e7c60914fe3283b1bfba607ef8fff3e7327a8be51c4a7a5c5ac437866f10d",
+    "packages/tui/src/components/markdown.ts": "0741a9787ab7e0900cb0bf3869dc78fb4d0b2c11d46191c82cc244b8d782df4d",
+    "packages/tui/src/tools/default-renderer.ts": "12f53e6a52f29b06e59cab93c61eeb6f97121f87c51ea988887161d0b0dae1d2",
+    "packages/tui/src/tools/json-tree.ts": "8228c59ed00593738d1fc1f4fa287ec68481932efd5c417ad255892aad3b0607",
+    "packages/utils/src/fetch-retry.ts": "7d90573477ae5f7b9fccc39c6f3c2d93ab2fc2aed1e2660e9d0a68709ad34380"
+  }
+}

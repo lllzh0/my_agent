@@ -417,9 +417,8 @@ function wrapNetworkError(error: unknown): Error {
 		}
 		if (error.message === "fetch failed" && error.cause instanceof Error) {
 			// Keep the original rejection as `cause`: undici nests the errno under
-			// `fetch failed` (often through an AggregateError), and
-			// classifyNetworkCause (packages/ai/src/error/network-cause.ts) walks
-			// `cause`/`errors` off this error. Flattening to text alone loses it.
+			// `fetch failed` (often through an AggregateError). Callers can inspect
+			// that cause chain instead of losing it when the message is flattened.
 			return new Error(`Network error: ${error.cause.message}`, { cause: error });
 		}
 		return error;

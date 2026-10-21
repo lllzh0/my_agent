@@ -40,3 +40,11 @@
 修复前：卡片/表格 4 项失败，补齐 JSON/长行回归后仍失败；MCP/读取联合回归 21 项失败（另有一个测试报错）。MCP 修复并调整上游测试兼容后 82 项通过；通用卡片、JSON 树、表格 10 项通过；产品 MCP/core/source/metrics 39 项通过。
 
 第三批最终补充：原生 read tool 75 项、leading-context/字节元数据 10 项通过；新增长行实际卡片渲染检查确认内容能换行且不超宽。TUI/coding-agent/agent 包完整 lint、格式、类型检查通过。
+
+## 最终集成与验证
+
+资源开关先保存：main `5ae2bb2f29` / 协作 `aa37e2fe13`。三批代码已集成：main `7216f18627 115d1d3444 2b87fdd96b`；协作 `cf2757bef0 3f9d8b7c9f 6e0f44695e`。未推送。主工作区仍在协作分支，main 位于 `.worktrees/main-sync`。
+
+完整产品测试：main 266 pass / 6 skip / 0 fail，协作 409 pass / 6 skip / 0 fail。最终专项为 AI 232、原生会话/MCP/SDK/写盘/读取 138、原生 read tool 75、TUI 10、fetch 37 项通过；这里按不同命令分别报告，不把中途重复运行累加。8 份包检查全部通过。共享原生包目录一致，55 个回移文件逐一一致，main 没有协作代码，本次没有改产品源码或依赖版本。
+
+六项真实 macOS 沙箱测试、真实 OpenCode Go/Tavily/MCP 服务和人工终端验收未做；独立审查代理在审查阶段遇到额度限制，最终复查由主代理完成，没有独立最终签字。完整命令范围、日志位置及源码摘要见 [验证记录](verification/upstream-stability-2026-10-21.json)。重启现有产品源码入口后生效；显式自定义 baseUrl 仍优先于默认目录地址。

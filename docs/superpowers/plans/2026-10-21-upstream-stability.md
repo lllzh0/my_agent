@@ -52,7 +52,7 @@ Files: generic TUI renderer/JSON tree/markdown helpers; native MCP errors/stdio/
 
 ## Task 4: Verify, integrate and hand off
 
-- [ ] Run checks appropriate to all changed packages; run both full product suites after integration.
-- [ ] Review the complete diff for leaked native capabilities, retry replay, lost history and changed authorization semantics. If independent review is unavailable, disclose that boundary.
-- [ ] Fast-forward main to the verified integration branch and cherry-pick only new shared backport commits into the collaboration branch, resolving documentation differences without importing team code into main.
-- [ ] Update HANDOFF, upstream provenance and verification records; save final local commits. No push, publication, install or real paid-model tests.
+- [x] Run checks appropriate to all changed packages; run both full product suites after integration.
+- [x] Review the complete diff for leaked native capabilities, retry replay, lost history and changed authorization semantics. If independent review is unavailable, disclose that boundary.
+- [x] Fast-forward main to the verified integration branch and cherry-pick only new shared backport commits into the collaboration branch, resolving documentation differences without importing team code into main.
+- [x] Update HANDOFF, upstream provenance and verification records; save final local commits. No push, publication, install or real paid-model tests.
