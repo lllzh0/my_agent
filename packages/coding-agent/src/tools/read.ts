@@ -2295,20 +2295,20 @@ export class ReadTool implements AgentTool<typeof readSchema, ReadToolDetails> {
 					const requestedStart = offset ? Math.max(0, offset - 1) : 0;
 					const expandStart = !rawSelector && offset !== undefined && offset > 1;
 					const expandEnd = !rawSelector && limit !== undefined;
-					const leadingContext = expandStart ? Math.min(requestedStart, RANGE_LEADING_CONTEXT_LINES) : 0;
+					let leadingContext = expandStart ? Math.min(requestedStart, RANGE_LEADING_CONTEXT_LINES) : 0;
 					const trailingContext = expandEnd ? RANGE_TRAILING_CONTEXT_LINES : 0;
-					const startLine = requestedStart - leadingContext;
-					const startLineDisplay = startLine + 1;
+					let startLine = requestedStart - leadingContext;
+					let startLineDisplay = startLine + 1;
 
 					const DEFAULT_LIMIT = this.#defaultLimit;
 					const effectiveLimit = limit ?? DEFAULT_LIMIT;
-					const maxLinesToCollect = Math.min(effectiveLimit + leadingContext + trailingContext, DEFAULT_MAX_LINES);
-					const selectedLineLimit = effectiveLimit + leadingContext + trailingContext;
-					// Scale byte budget with line limit so the configured line count actually fits.
-					// Assume ~512 bytes/line average; never go below the shared default.
-					const maxBytesForRead = Math.max(DEFAULT_MAX_BYTES, maxLinesToCollect * 512);
+					let maxLinesToCollect = Math.min(effectiveLimit + leadingContext + trailingContext, DEFAULT_MAX_LINES);
+					let selectedLineLimit = effectiveLimit + leadingContext + trailingContext;
+					// Preserve this fork's page budget and final output spill/inline guards.
+					const budgetFor = (lineCount: number): number => Math.max(DEFAULT_MAX_BYTES, lineCount * 512);
+					let maxBytesForRead = budgetFor(maxLinesToCollect);
 
-					const lineWindow = buffered
+					let lineWindow = buffered
 						? collectLineWindowFromBuffer(
 								buffered,
 								startLine,
@@ -2330,6 +2330,38 @@ export class ReadTool implements AgentTool<typeof readSchema, ReadToolDetails> {
 									seek: tailSeekTo?.(startLine),
 								},
 							);
+
+					// Leading context is optional. Never let it consume the budget before the requested page.
+					if (leadingContext > 0 && lineWindow.stoppedByByteLimit && lineWindow.lines.length < leadingContext) {
+						leadingContext = 0;
+						startLine = requestedStart;
+						startLineDisplay = startLine + 1;
+						maxLinesToCollect = Math.min(effectiveLimit + trailingContext, DEFAULT_MAX_LINES);
+						selectedLineLimit = effectiveLimit + trailingContext;
+						maxBytesForRead = budgetFor(maxLinesToCollect);
+						lineWindow = buffered
+							? collectLineWindowFromBuffer(
+									buffered,
+									startLine,
+									maxLinesToCollect,
+									maxBytesForRead,
+									selectedLineLimit,
+									rawSelector,
+								)
+							: await streamLinesFromFile(
+									absolutePath,
+									startLine,
+									maxLinesToCollect,
+									maxBytesForRead,
+									selectedLineLimit,
+									undefined, // plain-file read: deterministic and fast, never abort mid-read
+									{
+										includeTerminalNewline: rawSelector,
+										stopScanAfterCollect: fileSize > SNAPSHOT_MAX_BYTES,
+										seek: tailSeekTo?.(startLine),
+									},
+								);
+					}
 
 					const {
 						lines: collectedLines,

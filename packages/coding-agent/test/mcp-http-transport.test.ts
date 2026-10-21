@@ -146,7 +146,39 @@ describe("MCP Streamable HTTP initialization", () => {
 });
 
 describe("MCP Streamable HTTP failure diagnostics", () => {
-	it("classifies an abrupt socket reset without leaking Bun fetch advice", async () => {
+	it("does not replay an accepted JSON response whose body is cut short", async () => {
+		const tcp = Bun.listen({
+			hostname: "127.0.0.1",
+			port: 0,
+			socket: {
+				data(socket) {
+					socket.write(
+						'HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 1000\r\nConnection: close\r\n\r\n{"jsonrpc":"2.0",',
+					);
+					// Let fetch observe the headers before cutting the body; otherwise Bun may reject during send.
+					setTimeout(() => socket.end(), 10);
+				},
+			},
+		});
+		const transport = new HttpTransport({
+			type: "http",
+			url: `http://127.0.0.1:${tcp.port}/mcp`,
+			timeout: GUARD_TIMEOUT_MS,
+		});
+		try {
+			await transport.connect();
+			await expect(transport.request("tools/list")).rejects.toMatchObject({
+				transport: "http",
+				stage: "decode",
+				retryable: false,
+			});
+		} finally {
+			await transport.close();
+			tcp.stop(true);
+		}
+	});
+
+	it("classifies a reset after connecting as non-replayable without leaking Bun fetch advice", async () => {
 		const tcp = Bun.listen({
 			hostname: "127.0.0.1",
 			port: 0,
@@ -173,7 +205,7 @@ describe("MCP Streamable HTTP failure diagnostics", () => {
 				transport: "http",
 				stage: "send",
 				failure: "reset",
-				retryable: true,
+				retryable: false,
 				code: "ECONNRESET",
 			});
 			expect(error.message).not.toContain("verbose");

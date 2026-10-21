@@ -104,20 +104,23 @@ function buildDefaultToolBody(input: DefaultToolRenderInput, uiTheme: Theme, con
 			body.push(uiTheme.fg("dim", "(no output)"));
 		} else {
 			let renderedAsJson = false;
-			if (textContent.startsWith("{") || textContent.startsWith("[")) {
+			if (isTreeSafeJson(textContent)) {
 				try {
 					const parsed = JSON.parse(textContent);
 					const maxDepth = options.expanded ? JSON_TREE_MAX_DEPTH_EXPANDED : JSON_TREE_MAX_DEPTH_COLLAPSED;
 					const maxLines = options.expanded ? JSON_TREE_MAX_LINES_EXPANDED : JSON_TREE_MAX_LINES_COLLAPSED;
 					const maxScalarLen = options.expanded ? JSON_TREE_SCALAR_LEN_EXPANDED : JSON_TREE_SCALAR_LEN_COLLAPSED;
-					const tree = renderJsonTreeLines(parsed, uiTheme, maxDepth, maxLines, maxScalarLen);
+					const tree = renderJsonTreeLines(parsed, uiTheme, {
+						maxDepth,
+						maxLines,
+						maxScalarLen,
+						hiddenRootKeys: [],
+					});
 
-					if (tree.lines.length > 0) {
+					if (tree.lines.length > 0 && !(options.expanded && tree.truncated)) {
 						body.push(...tree.lines);
 						if (!options.expanded) {
 							body.push(formatExpandHint(uiTheme, options.expanded, true));
-						} else if (tree.truncated) {
-							body.push(uiTheme.fg("dim", "…"));
 						}
 						renderedAsJson = true;
 					}
@@ -132,8 +135,10 @@ function buildDefaultToolBody(input: DefaultToolRenderInput, uiTheme: Theme, con
 							lines: textContent.split("\n"),
 							expanded: options.expanded,
 							collapsedMaxLines: 4,
-							expandedMaxLines: 12,
-							styleLine: line => truncateToWidth(styleToolOutputLine(line, uiTheme), contentWidth),
+							styleLine: line => {
+								const styled = styleToolOutputLine(line, uiTheme);
+								return options.expanded ? styled : truncateToWidth(styled, contentWidth);
+							},
 							showExpandHintWhenUncapped: true,
 						},
 						uiTheme,
@@ -158,8 +163,16 @@ export function formatDefaultToolExecution(
 
 /** Inline args summary budget in characters (a data cap, not a width). */
 const NATIVE_ARGS_SUMMARY_CHARS = 160;
-/** Result text kept for the native card body. */
-const NATIVE_RESULT_MAX_CHARS = 64 * 1024;
+/** Route large or potentially lossy JSON to the complete raw view. */
+const JSON_TREE_MAX_CHARS = 64 * 1024;
+const UNSAFE_INTEGER_RE = /(?<![\w.])-?\d{16,}(?![\w.])/;
+function isTreeSafeJson(text: string): boolean {
+	return (
+		(text.startsWith("{") || text.startsWith("[")) &&
+		text.length <= JSON_TREE_MAX_CHARS &&
+		!UNSAFE_INTEGER_RE.test(text)
+	);
+}
 
 /**
  * TSP view of the generic fallback card: the tool label with a one-line args
@@ -174,14 +187,25 @@ export function describeDefaultToolExecution(input: DefaultToolRenderInput): Nat
 			: undefined;
 	const tool: NativeToolHead = { title: input.label, target: summary || undefined, targetKind: "text" };
 	if (!result) return { tool };
-	const output = result.output.trimEnd().slice(0, NATIVE_RESULT_MAX_CHARS);
+	const output = result.output.trimEnd();
 	const tone = result.skipped ? "info" : result.isError ? "error" : undefined;
 	if (!output) return { tool, tone, body: [noteText("(no output)")] };
-	if (output.startsWith("{") || output.startsWith("[")) {
+	if (isTreeSafeJson(output)) {
+		let parsed: unknown;
 		try {
-			return { tool, tone, body: [describeJsonTree(JSON.parse(output))] };
+			parsed = JSON.parse(output);
 		} catch {
 			// Not JSON: shown as raw output below.
+		}
+		if (parsed !== undefined) {
+			let truncated = false;
+			const tree = describeJsonTree(parsed, {
+				hiddenRootKeys: [],
+				onTruncated: () => {
+					truncated = true;
+				},
+			});
+			if (!truncated) return { tool, tone, body: [tree] };
 		}
 	}
 	return { tool, tone, body: [ansi(output)] };

@@ -28,6 +28,8 @@
 
 ### Fixed
 
+- Prevented replay after uncertain MCP dispatch and notified stdio servers when requests are cancelled or time out. Optional leading context no longer hides requested file lines.
+
 - Preserved newer turn state, interrupted tool results and deliberate-stop behavior across abort/retry; fixed a live-skill test callback type.
 
 - File-session rewrites wait for backpressured writes before publishing a replacement transcript.

@@ -12,6 +12,8 @@
 
 ### Fixed
 
+- Expanded generic tool results now retain all rows and long text, preserve large JSON and integer IDs, and show metadata-named result keys. Wide-glyph table cells stay inside their column.
+
 - Session selectors expose deletion and cross-project hints only when their host enables those actions; Backspace no longer opens an unavailable deletion dialog.
 - Clicking Copy answer in the `/btw` history (and Copy raw in the raw SSE viewer) on native terminals copies the answer instead of the button's label ([#15547](https://github.com/can1357/oh-my-pi/pull/15547) by [@H4vC](https://github.com/H4vC))
 

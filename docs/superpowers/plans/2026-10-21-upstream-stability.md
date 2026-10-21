@@ -44,11 +44,11 @@ Files: `packages/coding-agent/src/session/agent-session.ts`, `packages/ai/src/ut
 
 Files: generic TUI renderer/JSON tree/markdown helpers; native MCP errors/stdio/http and tests; native read.ts paging and tests; product MCP update integration only where required by the fixes.
 
-- [ ] Adapt complete-card behavior from `b898e4c123dc 10ea8a3c332f a3af9fb99fc5 b5a908616c52 8d2fa941776b`, preserving sanitization and the current rendering API; add behavioral expansion/large-JSON/id regressions before the fix.
-- [ ] Backport `770a32936a89` with the wide-glyph markdown table regression.
-- [ ] Backport MCP sequence `231c9f81fb99 46d66ec83e8f 0bf6c7a82bca 033ab92e28b8`, preserving product environment, detached cleanup, redirects and no-automatic-replay policy; reuse cancellation/dispatch regressions.
-- [ ] Adapt bounded-read behavior from `e68cb22126cb 212fbb5cb55f` without adopting unrelated file types or URI modes; test requested lines after oversized leading context and inline size limits.
-- [ ] Run focused TUI/MCP/read regressions and product MCP/core tests; save a local batch commit.
+- [x] Adapt complete-card behavior from `b898e4c123dc 10ea8a3c332f a3af9fb99fc5 b5a908616c52 8d2fa941776b`, preserving sanitization and the current rendering API; add behavioral expansion/large-JSON/id regressions before the fix.
+- [x] Backport `770a32936a89` with the wide-glyph markdown table regression.
+- [x] Backport MCP sequence `231c9f81fb99 46d66ec83e8f 0bf6c7a82bca 033ab92e28b8`, preserving product environment, detached cleanup, redirects and no-automatic-replay policy; reuse cancellation/dispatch regressions.
+- [x] Adapt `212fbb5cb55f` without adopting unrelated file types or URI modes. Confirm the cap bypass addressed by `e68cb22126cb` is absent locally; retain the existing spill/inline guards and byte metadata.
+- [x] Run focused TUI/MCP/read regressions and product MCP/core tests; save a local batch commit.
 
 ## Task 4: Verify, integrate and hand off
 
