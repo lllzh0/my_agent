@@ -535,7 +535,12 @@ function applyMCPEnvironment(result: { exaApiKeys: string[] }): void {
 }
 
 // Types
+/** Optional host decoration around calls made by this session (not inherited by child sessions). */
+export type ModelStreamDecorator = (stream: StreamFn, source: "main" | "side") => StreamFn;
+
 export interface CreateAgentSessionOptions {
+	/** Host-owned observation/transport wrapper. Omitted preserves the native stream path. */
+	decorateModelStream?: ModelStreamDecorator;
 	/** Working directory for project-local discovery. Default: getProjectDir() */
 	cwd?: string;
 	/** Additional workspace directories beyond cwd (multi-root), absolute or cwd-relative. */
@@ -4310,7 +4315,7 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 		// Primary-agent (and its auto-learn capture twin) provider options read per
 		// request, so `/settings` changes to budgets, Kimi format, or the Codex
 		// websocket policy reach the next call without a session recreate.
-		const primaryStreamFn: StreamFn = (streamModel, context, streamOptions) => {
+		const rawPrimaryStreamFn: StreamFn = (streamModel, context, streamOptions) => {
 			const kimiApiFormat = cfgProvidersKimiApiFormat.get(settings);
 			return settingsAwareStreamFn(streamModel, context, {
 				...streamOptions,
@@ -4319,6 +4324,8 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 				preferWebsockets: streamOptions?.preferWebsockets ?? resolveOpenAIWebsocketPreference(settings),
 			});
 		};
+		const primaryStreamFn = options.decorateModelStream?.(rawPrimaryStreamFn, "main") ?? rawPrimaryStreamFn;
+		const sideStreamFn = options.decorateModelStream?.(settingsAwareStreamFn, "side") ?? settingsAwareStreamFn;
 		// Prompt-cache warmer for the main agent loop only: replays the last
 		// request through the same primary wrapper just before the entry would
 		// expire, so idle gaps do not force a full-prefix cache re-write.
@@ -4649,8 +4656,8 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 			transformProviderContext,
 			onPayload,
 			onResponse,
-			sideStreamFn: settingsAwareStreamFn,
-			advisorStreamFn: settingsAwareStreamFn,
+			sideStreamFn,
+			advisorStreamFn: sideStreamFn,
 			convertToLlm: convertToLlmFinal,
 			rebuildSystemPrompt,
 			getXdevToolEntries: () => (toolSession.xdev ? xdevEntries(toolSession.xdev) : []),

@@ -3308,7 +3308,10 @@ export class Editor implements Component, Focusable {
 		// Check if we should trigger or update autocomplete
 		if (!this.#autocompleteState) {
 			// Auto-trigger for "/" at the start of a submitted command or a mid-prompt skill lookup.
-			if (char === "/" && (this.#isAtStartOfSubmittedMessage() || this.#isInMidPromptSkillSlashContext())) {
+			if (
+				this.#providerTriggersAutocomplete() ||
+				(char === "/" && (this.#isAtStartOfSubmittedMessage() || this.#isInMidPromptSkillSlashContext()))
+			) {
 				this.#tryTriggerAutocomplete();
 			}
 			// Auto-trigger for "@" file reference (fuzzy search)
@@ -3344,7 +3347,7 @@ export class Editor implements Component, Focusable {
 				const currentLine = this.#state.lines[this.#state.cursorLine] || "";
 				const textBeforeCursor = currentLine.slice(0, this.#state.cursorCol);
 				// Check if we're in a slash command or mid-prompt skill lookup.
-				if (this.#isInSlashAutocompleteContext()) {
+				if (this.#isInSlashAutocompleteContext() || this.#providerTriggersAutocomplete()) {
 					this.#tryTriggerAutocomplete();
 				}
 				// Check if we're in an @ file reference context
@@ -3470,7 +3473,7 @@ export class Editor implements Component, Focusable {
 		}
 		const currentLine = this.#state.lines[this.#state.cursorLine] || "";
 		const textBeforeCursor = currentLine.slice(0, this.#state.cursorCol);
-		if (this.#isInSlashAutocompleteContext()) {
+		if (this.#isInSlashAutocompleteContext() || this.#providerTriggersAutocomplete()) {
 			this.#tryTriggerAutocomplete();
 		} else if (textBeforeCursor.match(/(?:^|[\s])@[^\s]*$/)) {
 			this.#tryTriggerAutocomplete();
@@ -3671,7 +3674,7 @@ export class Editor implements Component, Focusable {
 			const currentLine = this.#state.lines[this.#state.cursorLine] || "";
 			const textBeforeCursor = currentLine.slice(0, this.#state.cursorCol);
 			// Slash command or mid-prompt skill lookup context
-			if (this.#isInSlashAutocompleteContext()) {
+			if (this.#isInSlashAutocompleteContext() || this.#providerTriggersAutocomplete()) {
 				this.#tryTriggerAutocomplete();
 			}
 			// @ file reference context
@@ -3848,7 +3851,7 @@ export class Editor implements Component, Focusable {
 		} else {
 			const currentLine = this.#state.lines[this.#state.cursorLine] || "";
 			const textBeforeCursor = currentLine.slice(0, this.#state.cursorCol);
-			if (this.#isInSlashAutocompleteContext()) {
+			if (this.#isInSlashAutocompleteContext() || this.#providerTriggersAutocomplete()) {
 				this.#tryTriggerAutocomplete();
 			} else if (textBeforeCursor.match(/(?:^|[\s])@[^\s]*$/)) {
 				this.#tryTriggerAutocomplete();
@@ -4183,7 +4186,7 @@ export class Editor implements Component, Focusable {
 			const currentLine = this.#state.lines[this.#state.cursorLine] || "";
 			const textBeforeCursor = currentLine.slice(0, this.#state.cursorCol);
 			// Slash command or mid-prompt skill lookup context
-			if (this.#isInSlashAutocompleteContext()) {
+			if (this.#isInSlashAutocompleteContext() || this.#providerTriggersAutocomplete()) {
 				this.#tryTriggerAutocomplete();
 			}
 			// @ file reference context
@@ -4431,6 +4434,32 @@ export class Editor implements Component, Focusable {
 		return this.#isInSubmittedSlashCommandContext() || this.#isInMidPromptSkillSlashContext();
 	}
 
+	#providerTriggersAutocomplete(): boolean {
+		return Boolean(
+			this.#autocompleteProvider?.trySyncSuggestions?.(
+				this.#state.lines,
+				this.#state.cursorLine,
+				this.#state.cursorCol,
+			),
+		);
+	}
+
+	#refreshProviderSuggestionsSync(): boolean {
+		const suggestions = this.#autocompleteProvider?.trySyncSuggestions?.(
+			this.#state.lines,
+			this.#state.cursorLine,
+			this.#state.cursorCol,
+		);
+		if (!suggestions) return false;
+		this.#invalidateAutocompleteRequests();
+		if (suggestions.items.length) this.#showAutocompleteSuggestions(suggestions, "regular");
+		else {
+			this.#cancelAutocomplete();
+			this.onAutocompleteUpdate?.();
+		}
+		return true;
+	}
+
 	/**
 	 * Decide whether the popup's `#autocompletePrefix` still safely maps onto the current
 	 * text before the cursor for an accept-time (`applyCompletion`) call. Mirrors the
@@ -4573,6 +4602,7 @@ export class Editor implements Component, Focusable {
 
 	async #tryTriggerAutocomplete(explicitTab: boolean = false): Promise<void> {
 		if (!this.#autocompleteProvider) return;
+		if (this.#refreshProviderSuggestionsSync()) return;
 		if (
 			explicitTab &&
 			this.#autocompleteProvider.shouldTriggerFileCompletion &&
@@ -4635,6 +4665,10 @@ export class Editor implements Component, Focusable {
 	}
 
 	async #handleTabCompletion(): Promise<void> {
+		if (this.#providerTriggersAutocomplete()) {
+			await this.#tryTriggerAutocomplete();
+			return;
+		}
 		if (this.#acceptPrediction()) return;
 		if (this.#acceptWordCompletion({ space: true })) return;
 		if (!this.#autocompleteProvider) return;
@@ -4898,6 +4932,7 @@ export class Editor implements Component, Focusable {
 	 */
 	#refreshAutocomplete(): void {
 		if (this.#autocompleteState === "assist") return;
+		if (this.#refreshProviderSuggestionsSync()) return;
 		if (this.#refreshSlashCommandListSync()) return;
 		this.#narrowAtFileList();
 		void this.#updateAutocomplete();

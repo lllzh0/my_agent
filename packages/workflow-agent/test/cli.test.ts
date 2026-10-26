@@ -58,6 +58,8 @@ test("fresh CLI keeps its configuration separate and answers without real model 
 	});
 	const run = async (args: string[]) => {
 		const child = Bun.spawn([process.execPath, launcher, ...args, "--home", home, "--cwd", cwd], {
+			// Do not load the developer's repository .env files before --cwd takes effect.
+			cwd: root,
 			env: { PATH: process.env.PATH, HOME: os.homedir(), TERM: "dumb" },
 			stdout: "pipe",
 			stderr: "pipe",

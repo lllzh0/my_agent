@@ -264,6 +264,19 @@ export interface AutocompleteProvider {
 	/** Get inline hint text to show as dim ghost text after the cursor */
 	getInlineHint?(lines: string[], cursorLine: number, cursorCol: number): string | null;
 	/**
+	 * Synchronous suggestions for provider-owned tokens, also opting in to automatic
+	 * completion. Return null outside that context, or an empty list for no matches.
+	 * Keeping local candidates synchronous prevents rapid edits + Tab accepting a stale list.
+	 */
+	trySyncSuggestions?(
+		lines: string[],
+		cursorLine: number,
+		cursorCol: number,
+	): {
+		items: AutocompleteItem[];
+		prefix: string;
+	} | null;
+	/**
 	 * Synchronously list slash command-name completions for a leading slash token (no async I/O).
 	 * Mirrors the command-name branch of {@link getSuggestions}, including the bare `/` listing and
 	 * the collapsed `/skill:` namespace row. Returns null outside a command-name token or with no match.

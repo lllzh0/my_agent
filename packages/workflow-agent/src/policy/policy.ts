@@ -45,6 +45,12 @@ export function contained(root: string, path: string): boolean {
 	return !isAbsolute(child) && child !== ".." && !child.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`);
 }
 
+/** Only a selected skill directory can reopen reads inside the protected app home. */
+export function filterManagedSkillRoots(home: string, roots: readonly string[]): string[] {
+	const managed = resolve(home, "skills");
+	return roots.filter(root => resolve(root) !== managed && contained(managed, resolve(root)));
+}
+
 export class Policy {
 	readonly workspace: string;
 	readonly settings: { readRoots: string[]; writeRoots: string[]; allowNetwork: boolean };
@@ -57,6 +63,7 @@ export class Policy {
 	userTask = "";
 	readonly reviewUsage = { requests: 0, tokens: 0, cost: 0 };
 	protectedRoots: string[] = [];
+	readonly managedSkillReadRoots: string[] = [];
 	readonly audit: {
 		at: string;
 		tool: string;
@@ -109,8 +116,15 @@ export class Policy {
 	async resolvePath(path: string, kind: "read" | "write"): Promise<string> {
 		const target = await canonicalPath(resolve(this.workspace, path));
 		if (this.#approvalMode === "full") return target;
-		for (const root of this.protectedRoots)
-			if (contained(await canonicalPath(root), target)) throw new Error("目标属于受保护的应用状态目录");
+		for (const root of this.protectedRoots) {
+			const protectedRoot = await canonicalPath(root);
+			if (!contained(protectedRoot, target)) continue;
+			const candidates = await Promise.all(this.managedSkillReadRoots.map(canonicalPath));
+			const selectedSkill =
+				kind === "read" &&
+				filterManagedSkillRoots(protectedRoot, candidates).some(skill => contained(skill, target));
+			if (!selectedSkill) throw new Error("目标属于受保护的应用状态目录");
+		}
 		const roots = [this.workspace, ...this.settings.readRoots, ...(kind === "write" ? this.settings.writeRoots : [])];
 		const allowed = kind === "write" ? [this.workspace, ...this.settings.writeRoots] : roots;
 		if (!(await Promise.all(allowed.map(canonicalPath))).some(root => contained(root, target)))

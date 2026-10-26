@@ -3,6 +3,7 @@ import * as path from "node:path";
 import type { AgentSession } from "@oh-my-pi/pi-coding-agent/session/agent-session";
 import { saveConfig, validateConfig, type Config } from "../config/config";
 import { atomicJson, readJson } from "../storage";
+import { filterManagedSkillRoots } from "../policy/policy";
 import { loadResources, resourceDisabled } from "./resources";
 import type { RunState } from "./state";
 
@@ -107,14 +108,25 @@ export class LiveResources {
 		return this.apply(next, signal);
 	}
 	apply(next: Config, signal?: AbortSignal): Promise<void> {
+		return this.withTransaction(apply => apply(next, signal));
+	}
+	/** Reserve the same idle gate before import staging and hold it through cleanup. */
+	withTransaction<T>(work: (apply: (next: Config, signal?: AbortSignal) => Promise<void>) => Promise<T>): Promise<T> {
 		this.assertSubmissionAllowed();
 		this.#assertIdle();
-		const operation = this.#apply(validateConfig(structuredClone(next)), signal);
-		this.#pending = operation;
+		// Start work after publishing the reservation, including synchronous callers.
+		const operation = Promise.resolve().then(() =>
+			work((next, signal) => this.#apply(validateConfig(structuredClone(next)), signal)),
+		);
+		this.#pending = operation.then(
+			() => {},
+			() => {},
+		);
 		return operation.finally(() => {
 			this.#pending = undefined;
 		});
 	}
+
 	async #apply(next: Config, signal?: AbortSignal): Promise<void> {
 		const state = this.#state;
 		const session = this.#session;
@@ -156,6 +168,15 @@ export class LiveResources {
 				...next.permissions.readRoots,
 				...next.resources.instructions.map(file => path.resolve(state.cwd, file)),
 				...next.resources.skills.map(file => path.resolve(state.cwd, file)),
+				...resources.skills.map(skill => skill.baseDir),
+			);
+			state.policy.managedSkillReadRoots.splice(
+				0,
+				state.policy.managedSkillReadRoots.length,
+				...filterManagedSkillRoots(
+					state.home,
+					resources.skills.map(skill => skill.baseDir),
+				),
 			);
 			state.policy.clearGrants();
 		} catch (error) {

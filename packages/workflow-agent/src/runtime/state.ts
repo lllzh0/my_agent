@@ -12,6 +12,7 @@ import type { ProductSessions } from "./sessions";
 import type { ProductReview } from "../review/runner";
 import type { ProductModels } from "../models/controller";
 import type { LiveResources } from "./live-resources";
+import type { ModelTraces } from "../diagnostics/model-trace";
 
 export interface RunState {
 	home: string;
@@ -33,4 +34,5 @@ export interface RunState {
 	models?: ProductModels;
 	review?: ProductReview;
 	liveResources?: LiveResources;
+	traces?: ModelTraces;
 }

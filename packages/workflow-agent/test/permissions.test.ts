@@ -14,6 +14,29 @@ async function fixture() {
 	return { root, workspace, policy: new Policy(workspace, { readRoots: [], writeRoots: [], allowNetwork: false }) };
 }
 
+test("managed skill read access does not expose application state, allow writes, or follow escaping links", async () => {
+	const f = await fixture();
+	try {
+		const home = path.join(f.root, "home");
+		const skill = path.join(home, "skills", "selected");
+		const reference = path.join(skill, "references", "guide.md");
+		await Bun.write(reference, "reference");
+		await Bun.write(path.join(home, "config.json"), "private state");
+		await fs.symlink(path.join(home, "config.json"), path.join(skill, "escape"));
+		f.policy.protectedRoots = [home];
+		f.policy.managedSkillReadRoots.push(skill);
+		f.policy.settings.readRoots.push(skill);
+		expect(await f.policy.resolvePath(reference, "read")).toBe(await fs.realpath(reference));
+		await expect(f.policy.resolvePath(reference, "write")).rejects.toThrow(/受保护/);
+		await expect(f.policy.resolvePath(path.join(skill, "escape"), "read")).rejects.toThrow(/受保护/);
+		await expect(f.policy.resolvePath(path.join(home, "config.json"), "read")).rejects.toThrow(/受保护/);
+		f.policy.managedSkillReadRoots.splice(0, 1, home, path.join(home, "skills"));
+		await expect(f.policy.resolvePath(reference, "read")).rejects.toThrow(/受保护/);
+	} finally {
+		await fs.rm(f.root, { recursive: true, force: true });
+	}
+});
+
 test("auto allows changing ordinary project files without reapproving each content version", async () => {
 	const f = await fixture();
 	try {

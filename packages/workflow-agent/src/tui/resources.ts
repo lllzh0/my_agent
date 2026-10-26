@@ -2,6 +2,7 @@ import * as path from "node:path";
 import type { ExtensionContext } from "@oh-my-pi/pi-coding-agent/sdk";
 import { replaceTabs } from "@oh-my-pi/pi-tui";
 import type { RunState } from "../runtime/state";
+import { skillImportFromMenu } from "./skill-import";
 
 export async function resourcesFromCommand(state: RunState, ctx: ExtensionContext, args = ""): Promise<void> {
 	const live = state.liveResources;
@@ -44,13 +45,15 @@ export async function resourcesFromCommand(state: RunState, ctx: ExtensionContex
 			"附加提示词",
 			"添加指令文件",
 			"添加技能文件或目录",
+			"导入外部技能",
 			"添加附加提示词",
 			"重新读取所选资源",
 			"返回",
 		]);
 		ctx.signal?.throwIfAborted();
 		if (!choice || choice === "返回") return;
-		if (choice === "查看当前状态") await resourcesFromCommand(state, ctx, "list");
+		if (choice === "导入外部技能") await skillImportFromMenu(state, ctx);
+		else if (choice === "查看当前状态") await resourcesFromCommand(state, ctx, "list");
 		else if (choice === "重新读取所选资源") await resourcesFromCommand(state, ctx, "reload");
 		else if (choice.startsWith("添加")) {
 			const input = await ctx.ui.input("本地路径");

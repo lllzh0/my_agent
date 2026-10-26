@@ -4,6 +4,9 @@
 
 ### Added
 
+- Autocomplete providers can opt in to automatic suggestions for custom input prefixes; existing providers keep their default triggers.
+- Terminals expose an optional pending-input discard operation for hosts that gate startup input.
+
 - Added `ApprovalDialogComponent` and the `app.approval.approve` keybinding (default `Ctrl+Enter`, `Ctrl+Q`) ([#15548](https://github.com/can1357/oh-my-pi/pull/15548) by [@H4vC](https://github.com/H4vC))
 
 ### Removed

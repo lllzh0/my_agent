@@ -12,6 +12,8 @@ import { parseMcpConfig } from "./mcp/config";
 import { productKeybindings, productResumeCommand } from "./tui/options";
 import { parseProductCommand, productCommandCatalog } from "./tui/commands";
 import { runProductInputLoop } from "./tui/input-loop";
+import { initializeProductInput } from "./tui/startup-input";
+import { createSkillAutocompleteProvider } from "./tui/skill-input";
 import { diagnosticReport, saveDiagnosticReport } from "./diagnostics/report";
 import { classifyError, ModelRequestError } from "./diagnostics/errors";
 import type { ApprovalMode } from "./policy/policy";
@@ -174,27 +176,37 @@ async function run(): Promise<void> {
 		};
 		process.once("SIGTERM", shutdown);
 		try {
-			await mode.init({
-				suppressWelcomeIntro: true,
-				autoStartCollab: false,
-				keybindings: productKeybindings(),
-				slashCommandCatalog: productCommandCatalog(host.state),
-				resumeCommand: () =>
-					host.session.sessionFile
-						? productResumeCommand(
-								home,
-								cwd,
-								host.session.sessionFile,
-								values.demo === true,
-								values.light === true,
-							)
-						: false,
-			});
+			await initializeProductInput(
+				mode,
+				async () => {
+					await mode.init({
+						suppressWelcomeIntro: true,
+						autoStartCollab: false,
+						keybindings: productKeybindings(),
+						slashCommandCatalog: productCommandCatalog(host.state),
+						resumeCommand: () =>
+							host.session.sessionFile
+								? productResumeCommand(
+										home,
+										cwd,
+										host.session.sessionFile,
+										values.demo === true,
+										values.light === true,
+									)
+								: false,
+					});
+					mode.addAutocompleteProvider(current =>
+						createSkillAutocompleteProvider(current, () => host.state.resources.skills),
+					);
+				},
+				host.closed,
+			);
 			if (values.prompt) await host.session.prompt(values.prompt);
 			await runProductInputLoop(mode, host.session, host.closed);
 		} finally {
 			unsubscribeResources();
 			process.removeListener("SIGTERM", shutdown);
+			mode.stop();
 			await host.dispose();
 		}
 	}

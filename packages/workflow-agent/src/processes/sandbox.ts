@@ -15,6 +15,7 @@ export class Sandbox implements ExecutionBackend {
 	readonly readRoots: string[];
 	readonly protectedHome: string;
 	readonly writeRoots: string[];
+	readonly managedSkillReadRoots: readonly string[];
 	fullAccess = false;
 	#ready = false;
 	#status = "尚未初始化";
@@ -29,6 +30,7 @@ export class Sandbox implements ExecutionBackend {
 		readRoots: string[] = [],
 		protectedHome = home,
 		writeRoots: string[] = [],
+		managedSkillReadRoots: readonly string[] = [],
 	) {
 		this.workspace = workspace;
 		this.home = home;
@@ -36,6 +38,7 @@ export class Sandbox implements ExecutionBackend {
 		this.readRoots = readRoots;
 		this.protectedHome = protectedHome;
 		this.writeRoots = writeRoots;
+		this.managedSkillReadRoots = managedSkillReadRoots;
 	}
 	async wrap(command: string, signal?: AbortSignal, scope: ExecutionScope = {}): Promise<string> {
 		if (this.fullAccess) return command;
@@ -121,7 +124,13 @@ export class Sandbox implements ExecutionBackend {
 			},
 			signal,
 		);
-		return protectMacOSCommand(wrapped, await realpath(this.protectedHome), this.#scratch, scope.gitWrite);
+		return protectMacOSCommand(
+			wrapped,
+			await realpath(this.protectedHome),
+			this.#scratch,
+			scope.gitWrite,
+			await Promise.all(this.managedSkillReadRoots.map(root => realpath(root))),
+		);
 	}
 	async close(): Promise<void> {
 		if (this.#ready) {

@@ -54,6 +54,7 @@ export async function openSessionRuntime(
 		policy.settings.readRoots,
 		home,
 		config.permissions.writeRoots,
+		policy.managedSkillReadRoots,
 	);
 	sandbox.fullAccess = policy.approvalMode === "full";
 	const research = new Research(stateDir, config.search);

@@ -325,9 +325,10 @@ test("a selected skill named after a native command cannot unlock that command",
 		const native = await f.run({ action: "input", command: "/mcp reload" });
 		expect(native.code, native.stderr).toBe(0);
 		expect(native.result.actionResult?.handled).toBe(true);
-		const selected = await f.run({ action: "input", command: "/skill:mcp" });
+		const selected = await f.run({ action: "input", command: "$mcp" });
 		expect(selected.code, selected.stderr).toBe(0);
 		expect(selected.result.actionResult?.handled).not.toBe(true);
+		expect(selected.result.actionResult?.text).toBe("/skill:mcp");
 	} finally {
 		await f.close();
 	}

@@ -1,6 +1,7 @@
 import { getModelPricingStatus } from "@oh-my-pi/pi-catalog/models";
 import type { ExtensionAPI, ExtensionContext, InputEventResult } from "@oh-my-pi/pi-coding-agent/sdk";
 import type { AgentSession } from "@oh-my-pi/pi-coding-agent/session/agent-session";
+import { parseSkillInvocation } from "@oh-my-pi/pi-coding-agent/extensibility/skills";
 import { replaceTabs, type SlashCommand } from "@oh-my-pi/pi-tui";
 import { prompt } from "@oh-my-pi/pi-utils";
 import type { RunState } from "../runtime/state";
@@ -16,6 +17,7 @@ import { collectProductDiff } from "../review/diff";
 import { reviewFromCommand } from "./review";
 import { resourcesFromCommand } from "./resources";
 import { resourceDisabled } from "../runtime/resources";
+import { traceFromCommand } from "./trace";
 
 const commands: SlashCommand[] = [
 	{ name: "help", description: "显示当前产品支持的命令" },
@@ -35,6 +37,12 @@ const commands: SlashCommand[] = [
 	{ name: "review", description: "对项目差异进行有请求上限的只读审查", argumentHint: "[本地基准]", allowArgs: true },
 	{ name: "fresh", description: "重建模型连接状态，保留本地聊天" },
 	{ name: "usage", description: "查看本会话本地 token 和费用统计" },
+	{
+		name: "trace",
+		description: "开启本地请求轨迹、查看正文及比较请求差异",
+		argumentHint: "[on|off|list|show <ID>|compare <ID-A> <ID-B>]",
+		allowArgs: true,
+	},
 	{ name: "tools", description: "查看实际工具与资源清单" },
 	{
 		name: "resources",
@@ -71,15 +79,8 @@ const commands: SlashCommand[] = [
 	{ name: "quit", aliases: ["q"], description: "退出并保存会话" },
 ];
 
-export function productCommandCatalog(state: Pick<RunState, "resources">): SlashCommand[] {
-	return [
-		...commands,
-		...state.resources.skills.map(skill => ({
-			name: `skill:${skill.name}`,
-			description: skill.description,
-			allowArgs: true,
-		})),
-	];
+export function productCommandCatalog(_state: Pick<RunState, "resources">): SlashCommand[] {
+	return [...commands];
 }
 
 export function parseProductCommand(text: string): { name: string; args: string } | undefined {
@@ -153,10 +154,17 @@ export async function handleProductCommand(
 	api: ExtensionAPI,
 	getSession: () => AgentSession | undefined,
 ): Promise<InputEventResult | undefined> {
+	const legacySkill = parseSkillInvocation(text);
+	if (legacySkill) {
+		ctx.ui.notify(
+			`技能已改用 $ 调用；请输入 $${legacySkill.name}${legacySkill.args ? ` ${legacySkill.args}` : ""}。`,
+			"info",
+		);
+		return { handled: true };
+	}
 	const parsed = parseProductCommand(text);
 	if (!parsed) return;
 	const { name, args } = parsed;
-	if (state.resources.skills.some(skill => name === `skill:${skill.name}`)) return;
 	const command = commands.find(command => command.name === name || command.aliases?.includes(name));
 	if (!command) {
 		ctx.ui.notify("此命令尚未接入产品入口；使用 /help 查看支持的命令。", "info");
@@ -175,6 +183,14 @@ export async function handleProductCommand(
 		return { handled: true };
 	}
 	if (command.name === "agent") return;
+	if (command.name === "trace") {
+		try {
+			await traceFromCommand(state, ctx, args);
+		} catch (error) {
+			ctx.ui.notify(replaceTabs(error instanceof Error ? error.message : String(error)), "error");
+		}
+		return { handled: true };
+	}
 	if (command.name === "goal") {
 		if (resourceDisabled(state.config, "tool:goal") && !/^(?:show|pause|drop)(?:\s|$)/i.test(args)) {
 			ctx.ui.notify("goal 工具已关闭；请先 /resources on tool:goal。", "info");
@@ -249,7 +265,7 @@ export async function handleProductCommand(
 							command =>
 								`/${command.name}${command.aliases?.length ? `（${command.aliases.map(alias => `/${alias}`).join("、")}）` : ""}${command.argumentHint ? ` ${command.argumentHint}` : ""} — ${command.description}`,
 						)
-						.join("\n"),
+						.join("\n") + "\n\n技能单独使用 $名称 [需求] 调用；输入 $ 查看已启用技能。",
 				);
 				break;
 			case "context":

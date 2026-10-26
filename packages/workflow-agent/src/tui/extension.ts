@@ -5,6 +5,7 @@ import { replaceTabs, Text } from "@oh-my-pi/pi-tui";
 import type { RunState } from "../runtime/state";
 import type { Approver } from "../policy/policy";
 import { resourcesFromCommand } from "./resources";
+import { traceFromCommand } from "./trace";
 import { resourceDisabled } from "../runtime/resources";
 import { atomicJson, redact } from "../storage";
 import { mcpMenu } from "./mcp-menu";
@@ -16,6 +17,7 @@ import {
 	toggleProductPlan,
 } from "./commands";
 import { selectPermissions, updateProductStatus } from "./permissions";
+import { parseProductSkill } from "./skill-input";
 
 export function productExtension(
 	state: RunState,
@@ -48,7 +50,11 @@ export function productExtension(
 				ctx.ui.setTitle("My Agent · OMP");
 				ctx.ui.setHeader(
 					() =>
-						new Text("My Agent 0.2.0 · OMP\n编程与资料研究 · /help 命令 · /agent 主菜单 · /plan 计划模式", 1, 1),
+						new Text(
+							"My Agent 0.2.0 · OMP\n编程与资料研究 · /help 命令 · $ 技能 · /agent 主菜单 · /plan 计划模式",
+							1,
+							1,
+						),
 				);
 			}
 		});
@@ -79,9 +85,9 @@ export function productExtension(
 			}
 			if (
 				event.source === "extension" &&
-				["model", "review", "resources", "agent"].includes(parseProductCommand(event.text)?.name ?? "")
+				["model", "review", "resources", "agent", "trace"].includes(parseProductCommand(event.text)?.name ?? "")
 			) {
-				ctx.ui.notify("资源开关、产品菜单、模型连接和独立代码审查只能由用户主动调用。", "error");
+				ctx.ui.notify("资源开关、产品菜单、轨迹记录、模型连接和独立代码审查只能由用户主动调用。", "error");
 				return { handled: true };
 			}
 			if (state.sessions?.busy || state.sessions?.closed) {
@@ -101,6 +107,21 @@ export function productExtension(
 			}
 			if (event.source === "extension" && /^\/permissions(?:\s|$)/.test(event.text.trim())) {
 				ctx.ui.notify("授权方式只能由用户主动切换。", "error");
+				return { handled: true };
+			}
+			const skill = parseProductSkill(event.text);
+			const selectedSkill = skill && state.resources.skills.some(item => item.name === skill.name);
+			if (skill && (selectedSkill || !/^\d+(?:\.\d+)?$/.test(skill.name))) {
+				if (!selectedSkill) {
+					ctx.ui.notify(`技能 ${skill.name} 未找到或未启用；输入 $ 查看可用技能，或用 /resources 管理。`, "error");
+					return { handled: true };
+				}
+				if (event.source !== "extension") state.policy.setUserTask(event.text);
+				// Let the native skill dispatcher retain file loading, images and queued delivery.
+				return { text: `/skill:${skill.name}${skill.args ? ` ${skill.args}` : ""}` };
+			}
+			if (event.text.trim() === "$") {
+				ctx.ui.notify("用法：$技能名称 [需求]；输入 $ 后选择一个已启用技能。", "info");
 				return { handled: true };
 			}
 			if (event.source !== "extension" && !parseProductCommand(event.text)) state.policy.setUserTask(event.text);
@@ -168,6 +189,7 @@ export function productExtension(
 			const choice = await ctx.ui.select("My Agent", [
 				"实际资源与工具",
 				"修改资源选择",
+				"模型请求轨迹",
 				"权限状态",
 				"切换授权方式",
 				"MCP 外部工具",
@@ -186,6 +208,12 @@ export function productExtension(
 			else if (choice === "修改资源选择") {
 				try {
 					await resourcesFromCommand(state, ctx);
+				} catch (error) {
+					ctx.ui.notify(replaceTabs(String(error)), "error");
+				}
+			} else if (choice === "模型请求轨迹") {
+				try {
+					await traceFromCommand(state, ctx);
 				} catch (error) {
 					ctx.ui.notify(replaceTabs(String(error)), "error");
 				}

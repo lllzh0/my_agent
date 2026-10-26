@@ -12,6 +12,7 @@ import { ChatTranscriptBuilder } from "@oh-my-pi/pi-tui/chat/chat-transcript-bui
 import { initTheme } from "@oh-my-pi/pi-tui/theme";
 import type { TUI } from "@oh-my-pi/pi-tui";
 import { resourceScenario } from "./resource-scenarios";
+import { traceScenario } from "./trace-scenarios";
 
 const options = JSON.parse(process.argv[2]) as {
 	home: string;
@@ -109,7 +110,9 @@ try {
 		const resumeChecks: string[] = [];
 		let closedChanges: Change[] | undefined;
 		for (const text of options.promptsBefore ?? []) await host.session.prompt(text);
-		if (options.action === "product-new") {
+		if (options.action?.startsWith("trace-")) {
+			actionResult = await traceScenario(host, options.action.slice(6));
+		} else if (options.action === "product-new") {
 			const source = { id: host.state.sessionId, file: host.session.sessionFile, stateDir: host.state.stateDir };
 			const checks: string[] = [];
 			const newController = new AbortController();
@@ -323,7 +326,7 @@ try {
 			actionResult = [];
 			for (const command of options.commands ?? [])
 				(actionResult as unknown[]).push(
-					await host.session.extensionRunner!.emitInput(command, undefined, "interactive"),
+					await host.session.extensionRunner!.emitInput(command, undefined, options.inputSource ?? "interactive"),
 				);
 			await host.session.waitForIdle();
 			if (options.action === "submit") {

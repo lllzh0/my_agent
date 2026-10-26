@@ -9,7 +9,7 @@ import { cfgToolsApproval } from "@oh-my-pi/pi-coding-agent/tools/settings";
 import { ProductReview } from "../review/runner";
 import { ProductModels, type ModelBinding } from "../models/controller";
 import { loadConfig } from "../config/config";
-import { Policy, contained, type Approver, type ApprovalMode } from "../policy/policy";
+import { Policy, contained, filterManagedSkillRoots, type Approver, type ApprovalMode } from "../policy/policy";
 import { createReviewer } from "../policy/reviewer";
 import { atomicJson, readJson, record } from "../storage";
 import { loadResources } from "./resources";
@@ -21,6 +21,7 @@ import { startDemo } from "./demo";
 import { closeSessionRuntime, openSessionRuntime, sessionStateDirectory } from "./session-state";
 import { ProductSessions, type ResumeUI } from "./sessions";
 import { logger } from "@oh-my-pi/pi-utils";
+import { ModelTraces } from "../diagnostics/model-trace";
 
 export interface HostOptions {
 	home: string;
@@ -79,6 +80,13 @@ export async function openHost(options: HostOptions): Promise<Host> {
 		policy.setApprovalMode(options.permissions ?? config.permissions.approval ?? "manual");
 		for (const input of [...config.resources.instructions, ...config.resources.skills])
 			if (!light) policy.settings.readRoots.push(path.resolve(cwd, input));
+		policy.settings.readRoots.push(...resources.skills.map(skill => skill.baseDir));
+		policy.managedSkillReadRoots.push(
+			...filterManagedSkillRoots(
+				home,
+				resources.skills.map(skill => skill.baseDir),
+			),
+		);
 		let activeRuntime = await openSessionRuntime(home, cwd, manager.getSessionId(), config, light, policy);
 		const state: RunState = {
 			home,
@@ -98,6 +106,7 @@ export async function openHost(options: HostOptions): Promise<Host> {
 			turn: "initial",
 		};
 		const closed = Promise.withResolvers<void>();
+		state.traces = new ModelTraces(() => state);
 		let models: ProductModels | undefined;
 		const demo = options.demo ? startDemo() : undefined;
 		let created: CreateAgentSessionResult | undefined;
@@ -153,6 +162,7 @@ export async function openHost(options: HostOptions): Promise<Host> {
 				Object.fromEntries([...tools.map(tool => [tool.name, "allow"]), ...(!light ? [["goal", "allow"]] : [])]),
 			);
 			created = await createAgentSession({
+				decorateModelStream: state.traces.decorate,
 				cwd,
 				agentDir,
 				settings,
@@ -302,6 +312,7 @@ export async function openHost(options: HostOptions): Promise<Host> {
 								await closeSessionRuntime(activeRuntime);
 							} finally {
 								await models?.dispose();
+								await state.traces?.close();
 								demo?.stop(true);
 								closed.resolve();
 							}
@@ -319,6 +330,7 @@ export async function openHost(options: HostOptions): Promise<Host> {
 					await closeSessionRuntime(activeRuntime);
 				} finally {
 					await models?.dispose();
+					await state.traces?.close();
 					demo?.stop(true);
 				}
 			}

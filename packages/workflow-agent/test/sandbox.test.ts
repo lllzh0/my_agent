@@ -92,6 +92,49 @@ sandboxTest(
 const quote = (value: string) => `'${value.replace(/'/g, `'\\''`)}'`;
 
 sandboxTest(
+	"enabled managed skills are readable in shell without reopening state or writes, and disabling revokes access",
+	async () => {
+		const f = await fixture();
+		try {
+			const skill = path.join(f.home, "skills/selected");
+			const reference = path.join(skill, "reference.txt");
+			await Bun.write(path.join(skill, "SKILL.md"), "---\nname: selected\ndescription: selected skill\n---\nbody");
+			await Bun.write(reference, "MANAGED_SKILL_REFERENCE");
+			await Bun.write(path.join(f.home, "private.txt"), "PRIVATE_APP_STATE");
+			f.config.resources.skills = [path.join(skill, "SKILL.md")];
+			const command = [
+				`cat ${quote(reference)}; printf 'skill-read:%s\\n' "$?"`,
+				`printf unsafe > ${quote(reference)}; printf 'skill-write:%s\\n' "$?"`,
+				`cat ${quote(path.join(f.home, "private.txt"))}; printf 'state-read:%s\\n' "$?"`,
+			].join("\n");
+			f.callTool("bash", { command });
+			const enabled = await f.run({ approve: true });
+			expect(enabled.code, enabled.stderr).toBe(0);
+			const tool = enabled.result.messages.find((message: { role: string }) => message.role === "toolResult");
+			const log = JSON.parse(tool.content[0].text).log as string;
+			expect(log).toContain("MANAGED_SKILL_REFERENCE");
+			expect(log).toContain("skill-read:0");
+			expect(log).toMatch(/skill-write:[1-9]/);
+			expect(log).toMatch(/state-read:[1-9]/);
+			expect(log).not.toContain("PRIVATE_APP_STATE");
+			expect(await Bun.file(reference).text()).toBe("MANAGED_SKILL_REFERENCE");
+			f.config.resources.disabled = ["skill:selected"];
+			const disabled = await f.run({ approve: true });
+			expect(disabled.code, disabled.stderr).toBe(0);
+			const disabledTool = disabled.result.messages.find(
+				(message: { role: string }) => message.role === "toolResult",
+			);
+			const disabledLog = JSON.parse(disabledTool.content[0].text).log as string;
+			expect(disabledLog).not.toContain("MANAGED_SKILL_REFERENCE");
+			expect(disabledLog).toMatch(/skill-read:[1-9]/);
+		} finally {
+			await f.close();
+		}
+	},
+	30000,
+);
+
+sandboxTest(
 	"real model bash calls use the macOS sandbox, including a state directory inside the workspace",
 	async () => {
 		const f = await fixture(true);

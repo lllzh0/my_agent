@@ -4,6 +4,7 @@
 
 ### Added
 
+- Embedded hosts can decorate main and side model streams for local diagnostics without changing the default stream path.
 - Embedded hosts can replace explicitly supplied skills at runtime while keeping automatic skill discovery disabled.
 
 - Embedded hosts can observe active ephemeral turns and guard their admission during model/session transitions.

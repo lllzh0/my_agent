@@ -543,6 +543,9 @@ export interface Terminal {
 	 */
 	drainInput(maxMs?: number, idleMs?: number): Promise<void>;
 
+	/** Drop incomplete key/paste sequences while the caller is suppressing startup input. */
+	discardPendingInput?(): void;
+
 	// Write output to terminal
 	write(data: string): void;
 
@@ -2159,6 +2162,13 @@ export class ProcessTerminal implements Terminal {
 		if (this.#reportedRows !== undefined && osRows > 0 && this.#reportedRows !== osRows) {
 			this.#reportedRows = undefined;
 		}
+	}
+
+	discardPendingInput(): void {
+		// Flush the Windows marker adapter into the buffer before clearing it;
+		// the caller still owns an input gate while this method runs.
+		this.#win32PasteNormalizer?.flush();
+		this.#stdinBuffer?.clear();
 	}
 
 	async drainInput(maxMs = 1000, idleMs = 50): Promise<void> {

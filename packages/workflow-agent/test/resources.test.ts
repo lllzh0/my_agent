@@ -147,7 +147,7 @@ test("skill and instruction switches update the next request without restarting 
 				"/resources off skill:selected",
 				`/resources off instruction:${instruction}`,
 				`/resources off system:${extra}`,
-				"/skill:selected",
+				"$selected",
 			],
 			promptAfterCommands: "Continue with resources disabled",
 		});
