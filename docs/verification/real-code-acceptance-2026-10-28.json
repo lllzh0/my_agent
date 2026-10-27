@@ -1,0 +1,399 @@
+{
+  "date": "2026-10-28",
+  "timezone": "Asia/Shanghai",
+  "productCommit": "ab1cea0147",
+  "target": {
+    "repository": "https://github.com/sindresorhus/escape-string-regexp",
+    "base": "5085b257c801507460270b747f645276fbc1d937",
+    "license": "MIT",
+    "issue": "https://github.com/sindresorhus/escape-string-regexp/issues/20",
+    "referencePr": "https://github.com/sindresorhus/escape-string-regexp/pull/21",
+    "readonlyIssue": "https://github.com/sindresorhus/escape-string-regexp/issues/41"
+  },
+  "runtime": {
+    "provider": "opencode-go",
+    "model": "deepseek-v4.1-flash",
+    "maxOutputTokens": 4096,
+    "node": "20.20.2",
+    "approval": "manual",
+    "productSandbox": true,
+    "toolNetwork": false
+  },
+  "outcome": {
+    "issue20": "passed after adding the missing character-class acceptance criterion",
+    "firstProposal": "incorrect: suggested leaving hyphens unescaped",
+    "issue41": "not reproduced locally; no source changes",
+    "finalProcessExitCode": 0
+  },
+  "validation": {
+    "project": {
+      "command": "CI=1 npm test",
+      "checks": [
+        "xo",
+        "ava",
+        "tsd"
+      ],
+      "tests": 4,
+      "exitCode": 0
+    },
+    "oracle": {
+      "before": {
+        "passed": 30,
+        "failed": 8
+      },
+      "after": {
+        "passed": 38,
+        "failed": 0
+      },
+      "cases": [
+        {
+          "name": "literal \"\" flags=",
+          "pass": true
+        },
+        {
+          "name": "literal \"-\" flags=",
+          "pass": true
+        },
+        {
+          "name": "literal \"a-z\" flags=",
+          "pass": true
+        },
+        {
+          "name": "literal \"foo - bar\" flags=",
+          "pass": true
+        },
+        {
+          "name": "literal \"\\\\ ^ $ * + ? . ( ) | { } [ ]\" flags=",
+          "pass": true
+        },
+        {
+          "name": "literal \"你好-😀\" flags=",
+          "pass": true
+        },
+        {
+          "name": "literal \"[a-z]\" flags=",
+          "pass": true
+        },
+        {
+          "name": "literal \"++\" flags=",
+          "pass": true
+        },
+        {
+          "name": "literal \"--\" flags=",
+          "pass": true
+        },
+        {
+          "name": "literal \"\\n-\\n\" flags=",
+          "pass": true
+        },
+        {
+          "name": "literal \"\\\\-\" flags=",
+          "pass": true
+        },
+        {
+          "name": "class \"-\" flags=",
+          "pass": true
+        },
+        {
+          "name": "class \"a-z\" flags=",
+          "pass": true
+        },
+        {
+          "name": "class \"a-b-c\" flags=",
+          "pass": true
+        },
+        {
+          "name": "class \"[]-\\\\\" flags=",
+          "pass": true
+        },
+        {
+          "name": "class \"中-文\" flags=",
+          "pass": true
+        },
+        {
+          "name": "literal \"\" flags=u",
+          "pass": true
+        },
+        {
+          "name": "literal \"-\" flags=u",
+          "pass": true
+        },
+        {
+          "name": "literal \"a-z\" flags=u",
+          "pass": true
+        },
+        {
+          "name": "literal \"foo - bar\" flags=u",
+          "pass": true
+        },
+        {
+          "name": "literal \"\\\\ ^ $ * + ? . ( ) | { } [ ]\" flags=u",
+          "pass": true
+        },
+        {
+          "name": "literal \"你好-😀\" flags=u",
+          "pass": true
+        },
+        {
+          "name": "literal \"[a-z]\" flags=u",
+          "pass": true
+        },
+        {
+          "name": "literal \"++\" flags=u",
+          "pass": true
+        },
+        {
+          "name": "literal \"--\" flags=u",
+          "pass": true
+        },
+        {
+          "name": "literal \"\\n-\\n\" flags=u",
+          "pass": true
+        },
+        {
+          "name": "literal \"\\\\-\" flags=u",
+          "pass": true
+        },
+        {
+          "name": "class \"-\" flags=u",
+          "pass": true
+        },
+        {
+          "name": "class \"a-z\" flags=u",
+          "pass": true
+        },
+        {
+          "name": "class \"a-b-c\" flags=u",
+          "pass": true
+        },
+        {
+          "name": "class \"[]-\\\\\" flags=u",
+          "pass": true
+        },
+        {
+          "name": "class \"中-文\" flags=u",
+          "pass": true
+        },
+        {
+          "name": "non-string null",
+          "pass": true
+        },
+        {
+          "name": "non-string undefined",
+          "pass": true
+        },
+        {
+          "name": "non-string 1",
+          "pass": true
+        },
+        {
+          "name": "non-string [object Object]",
+          "pass": true
+        },
+        {
+          "name": "non-string ",
+          "pass": true
+        },
+        {
+          "name": "non-string true",
+          "pass": true
+        }
+      ]
+    },
+    "readonlySourceUnchanged": true,
+    "sourceFiles": [
+      {
+        "name": "index.js",
+        "sha256": "11d2e217258249d6f817cc819133b24a741978cf761be34f6d1af43cf60102c8"
+      },
+      {
+        "name": "test.js",
+        "sha256": "a5f675b2759faee4479369a907662c25e25b36c397a4b03d76911c35fa3ecbf4"
+      }
+    ]
+  },
+  "requests": [
+    {
+      "id": "01a17d8e-1fa8-7000-a64a-d798f2806b56",
+      "status": "toolUse",
+      "http": [
+        200
+      ],
+      "startedAt": 1793107828648,
+      "durationMs": 3413
+    },
+    {
+      "id": "01a17d8e-2d3e-7000-a0d2-fb5d9c2451bc",
+      "status": "toolUse",
+      "http": [
+        200
+      ],
+      "startedAt": 1793107832126,
+      "durationMs": 3125
+    },
+    {
+      "id": "01a17d8e-fd61-7000-8aa9-15f06dcba8ec",
+      "status": "toolUse",
+      "http": [
+        200
+      ],
+      "startedAt": 1793107885409,
+      "durationMs": 4348
+    },
+    {
+      "id": "01a17d8f-da5f-7000-8834-abf94472a559",
+      "status": "stop",
+      "http": [
+        200
+      ],
+      "startedAt": 1793107941983,
+      "durationMs": 14634
+    },
+    {
+      "id": "01a17d92-c5eb-7000-bb55-828c86ad2d85",
+      "status": "toolUse",
+      "http": [
+        200
+      ],
+      "startedAt": 1793108133355,
+      "durationMs": 6978
+    },
+    {
+      "id": "01a17d93-e73e-7000-8422-2adfbabd7e0c",
+      "status": "toolUse",
+      "http": [
+        200
+      ],
+      "startedAt": 1793108207422,
+      "durationMs": 7644
+    },
+    {
+      "id": "01a17d97-0acc-7000-a901-e121adea1dc6",
+      "status": "toolUse",
+      "http": [
+        200
+      ],
+      "startedAt": 1793108413132,
+      "durationMs": 5093
+    },
+    {
+      "id": "01a17d97-7aba-7000-907d-692737a2f01b",
+      "status": "toolUse",
+      "http": [
+        200
+      ],
+      "startedAt": 1793108441786,
+      "durationMs": 2441
+    },
+    {
+      "id": "01a17d98-46ca-7000-9242-4444173ee368",
+      "status": "toolUse",
+      "http": [
+        200
+      ],
+      "startedAt": 1793108494026,
+      "durationMs": 2811
+    },
+    {
+      "id": "01a17d98-ee1f-7000-8629-bd1530e06a82",
+      "status": "stop",
+      "http": [
+        200
+      ],
+      "startedAt": 1793108536863,
+      "durationMs": 4382
+    },
+    {
+      "id": "01a17d99-8a2a-7000-a500-e406805a5818",
+      "status": "toolUse",
+      "http": [
+        200
+      ],
+      "startedAt": 1793108576810,
+      "durationMs": 2851
+    },
+    {
+      "id": "01a17f98-72ac-7000-b1da-362f6ff05355",
+      "status": "toolUse",
+      "http": [
+        200
+      ],
+      "startedAt": 1793142059692,
+      "durationMs": 2427
+    },
+    {
+      "id": "01a17f98-e5b9-7000-929f-d5f8b62bfdd5",
+      "status": "stop",
+      "http": [
+        200
+      ],
+      "startedAt": 1793142089145,
+      "durationMs": 2161
+    }
+  ],
+  "jobs": [
+    {
+      "id": "7882bbbc-a702-4216-8f4d-051292dec92c",
+      "command": "node -e 'const esc = require(\".\"); console.log(JSON.stringify(esc(\"-\"))); try { new RegExp(esc(\"-\"), \"u\"); console.log(\"OK\"); } catch (error) { console.log(error.name + \": \" + error.message); }'",
+      "status": "failed",
+      "exitCode": 71,
+      "log": "sandbox-exec: sandbox_apply: Operation not permitted\n"
+    },
+    {
+      "id": "7ecbdfca-ba0d-4a57-a6d2-5b6a7a7c1985",
+      "command": "node --version",
+      "status": "failed",
+      "exitCode": 71,
+      "log": "sandbox-exec: sandbox_apply: Operation not permitted\n"
+    },
+    {
+      "id": "324e76f1-f3e3-4513-bfd9-820c1bd8f274",
+      "command": "node -e 'const esc = require(\".\"); const out = esc(\"-\"); console.log({escaped: out, node: process.version}); try { new RegExp(out, \"u\"); console.log(\"u: OK\"); } catch (error) { console.log(\"u:\", error.name + \": \" + error.message); } const plain = new RegExp(out); console.log(\"non-u matches \\\"-\\\":\", plain.test(\"-\")); console.log(\"current a-z escape:\", JSON.stringify(esc(\"a-z\")));'",
+      "status": "succeeded",
+      "exitCode": 0,
+      "log": "{ escaped: '\\\\-', node: 'v20.20.2' }\nu: SyntaxError: Invalid regular expression: /\\-/u: Invalid escape\nnon-u matches \"-\": true\ncurrent a-z escape: \"a\\\\-z\"\n"
+    },
+    {
+      "id": "3abd6d2e-8be9-4e51-b530-a6b648f92df0",
+      "command": "node -e 'const esc = require(\".\"); for (const flags of [\"\", \"u\"]) { const cls = new RegExp(\"^[\" + esc(\"a-z\") + \"]$\", flags); console.log(flags || \"no-flags\", JSON.stringify(esc(\"a-z\")), [\"a\",\"-\",\"z\",\"m\"].map(c => c + \":\" + cls.test(c)).join(\" \")); }'",
+      "status": "succeeded",
+      "exitCode": 0,
+      "log": "no-flags \"a\\\\-z\" a:true -:true z:true m:false\nu \"a\\\\-z\" a:true -:true z:true m:false\n"
+    },
+    {
+      "id": "79f9a058-02f5-4401-8d4c-819dc07e2e98",
+      "command": "CI=1 npm test",
+      "status": "succeeded",
+      "exitCode": 0,
+      "log": "\n> escape-string-regexp@2.0.0 test\n> xo && ava && tsd\n\n\n  ✔ main\n  ✔ escapes `-`\n  ✔ escaped string works with and without the `u` flag\n  ✔ escaped `-` is literal in a character class, not a range\n\n  4 tests passed\n\n"
+    },
+    {
+      "id": "8ec190ac-b489-413c-bf69-bd192ba4f2a0",
+      "command": "node -e 'const esc = require(\".\"); console.log(\"escaped:\", JSON.stringify(esc(\"a-z\"))); for (const flags of [\"\", \"u\"]) { const re = new RegExp(\"^[\" + esc(\"a-z\") + \"]$\", flags); console.log(flags || \"no-flags\", \"a:\", re.test(\"a\"), \"-:\", re.test(\"-\"), \"z:\", re.test(\"z\"), \"m:\", re.test(\"m\")); new RegExp(esc(\"-\"), flags); } console.log(\"standalone u: OK\");'",
+      "status": "succeeded",
+      "exitCode": 0,
+      "log": "escaped: \"a\\\\x2dz\"\nno-flags a: true -: true z: true m: false\nu a: true -: true z: true m: false\nstandalone u: OK\n"
+    },
+    {
+      "id": "1dfdb539-bd68-450d-9176-298491f29537",
+      "command": "node -e 'const esc = require(\".\"); for (const input of [\"+\", \"a+b\"]) { const out = esc(input); console.log(JSON.stringify(input), \"->\", JSON.stringify(out)); for (const flags of [\"\", \"u\"]) { const re = new RegExp(\"^\" + out + \"$\", flags); console.log(\"  \" + (flags || \"no-flags\"), \"literal:\", re.test(input), \"aaab:\", re.test(\"aaab\")); } }'",
+      "status": "succeeded",
+      "exitCode": 0,
+      "log": "\"+\" -> \"\\\\+\"\n  no-flags literal: true aaab: false\n  u literal: true aaab: false\n\"a+b\" -> \"a\\\\+b\"\n  no-flags literal: true aaab: false\n  u literal: true aaab: false\n"
+    }
+  ],
+  "credentialAudit": {
+    "files": 51,
+    "matches": 0,
+    "scope": "test output files, state JSON, session JSONL, product logs, and the two changed source files plus package.json; excludes dependencies and downloaded runtimes"
+  },
+  "evidenceRoot": "/tmp/my-agent-code-acceptance-5XEg05",
+  "limitations": [
+    "One small JavaScript library; no large repository benchmark",
+    "Manual clarification was needed for the character-class boundary",
+    "Historical test tooling required isolated Node 20 and temporary dependency type pins",
+    "An outer sandbox blocked initial commands; host elevation retained the product sandbox",
+    "The approval service usage limit interrupted the final read-only check; it was completed on October 28",
+    "No upstream issue comment, PR or push; no human acceptance inferred"
+  ]
+}
