@@ -239,7 +239,10 @@ export class InkShell {
 					this.#layout.sidebar = !this.#layout.sidebar;
 					break;
 				case "stop":
-					await this.mode.session.abort();
+					// Use the same queue recovery and user-interrupt reason as Esc.
+					// A bare session abort leaves queued input eligible for automatic delivery.
+					if (this.mode.session.isStreaming || this.mode.session.isCompacting || this.mode.session.isRetrying)
+						this.mode.editor.onEscape?.();
 					break;
 				default:
 					await this.#dispatch(`/${action}`);
