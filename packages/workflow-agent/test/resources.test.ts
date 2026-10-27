@@ -4,6 +4,26 @@ import * as fs from "node:fs/promises";
 import { fixture } from "./helpers";
 import { loadResources } from "../src/runtime/resources";
 
+test("resource status presents readable groups and distinguishes disabled tools from inactive goal tools without a model call", async () => {
+	const f = await fixture();
+	try {
+		const skill = path.join(f.root, "brainstorming", "SKILL.md");
+		await Bun.write(skill, "---\nname: brainstorming\ndescription: Discuss requirements\n---\nbody");
+		f.config.resources.skills = [skill];
+		const run = await f.run({ action: "commands", commands: ["/resources off tool:write", "/resources list"] });
+		expect(run.code, run.stderr).toBe(0);
+		const text = run.result.displays.at(-1).text as string;
+		expect(() => JSON.parse(text)).toThrow();
+		expect(text).toMatch(/技能.*1\s*\/\s*1/);
+		expect(text).toMatch(/可用[^\n]*\$brainstorming/);
+		expect(text).toMatch(/已关闭[^\n]*write/);
+		expect(text).toMatch(/未生效[^\n]*goal/);
+		expect(f.requests).toHaveLength(0);
+	} finally {
+		await f.close();
+	}
+}, 30000);
+
 test("disabled skills still reject ambiguous duplicate names instead of sharing one switch", async () => {
 	const f = await fixture();
 	try {

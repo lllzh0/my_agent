@@ -3,24 +3,30 @@ import type { ExtensionContext } from "@oh-my-pi/pi-coding-agent/sdk";
 import { replaceTabs } from "@oh-my-pi/pi-tui";
 import type { RunState } from "../runtime/state";
 import { skillImportFromMenu } from "./skill-import";
+import { InkDocument } from "./ink-document";
+import { formatResourceStatus } from "./resource-status";
 
 export async function resourcesFromCommand(state: RunState, ctx: ExtensionContext, args = ""): Promise<void> {
 	const live = state.liveResources;
 	if (!live) throw new Error("资源管理尚未初始化。");
 	if (args === "list") {
-		await ctx.ui.editor(
-			"当前资源开关",
-			replaceTabs(
-				JSON.stringify(
-					{
-						resources: live.list(),
-						note: "enabled 为用户选择，active 为当前可用；goal 仍受目标模式限制。开关保存在配置中，后续请求生效；已有聊天内容保留。",
-					},
-					null,
-					2,
-				),
-			),
-		);
+		const body = formatResourceStatus(live.list());
+		if (ctx.hasUI) {
+			await ctx.ui.custom<void>(
+				(tui, _theme, _keys, done) =>
+					new InkDocument(
+						"资源状态 · 只读",
+						body,
+						() => Math.max(5, tui.terminal.rows - 2),
+						() => done(),
+					),
+				{
+					overlay: true,
+					overlayOptions: { fullscreen: true, width: "100%", maxHeight: "100%", margin: 1, mouseTracking: false },
+					signal: ctx.signal,
+				},
+			);
+		} else await ctx.ui.editor("资源状态", body);
 		return;
 	}
 	const match = /^(on|off)\s+([\s\S]+)$/.exec(args);

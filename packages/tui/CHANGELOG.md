@@ -4,6 +4,8 @@
 
 ### Added
 
+- Added optional workspace frame decoration with docked input while preserving transcript scrollback and click targets.
+
 - Autocomplete providers can opt in to automatic suggestions for custom input prefixes; existing providers keep their default triggers.
 - Terminals expose an optional pending-input discard operation for hosts that gate startup input.
 

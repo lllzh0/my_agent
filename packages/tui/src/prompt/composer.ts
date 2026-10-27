@@ -97,6 +97,16 @@ export interface RuntimeChildrenOptions {
 	readonly nativeDock?: readonly Component[];
 }
 
+/** Optional ANSI workspace chrome. History remains undecorated for native scrollback. */
+export interface ComposerFrameInsets {
+	readonly top: number;
+	readonly left: number;
+}
+export interface ComposerFrameDecoration {
+	measure(viewport: ViewportSize): ComposerFrameInsets;
+	render(viewport: ViewportSize, content: readonly string[], insets: ComposerFrameInsets): readonly string[];
+}
+
 /** Controls the first terminal paint for a composer that does not already own the terminal. */
 export interface ComposerStartOptions {
 	readonly clearScrollback?: boolean;
@@ -190,6 +200,9 @@ function rowTargetCandidates(target: Component): ((local: number) => string[]) |
  * data and mounts the session-aware runtime children without replacing the visible header.
  */
 export class Composer implements TerminalFrameProvider, NativeSurfaceProvider {
+	#frameDecoration: ComposerFrameDecoration | undefined;
+	#decorationTop = 0;
+	#dockToBottom = false;
 	readonly ui: TUI;
 	#editor: CustomEditor;
 	readonly #header = new Container();
@@ -339,6 +352,34 @@ export class Composer implements TerminalFrameProvider, NativeSurfaceProvider {
 
 	/** Compose the bounded mutable viewport and the next ordered history append. */
 	renderFrame(viewport: ViewportSize): TerminalFramePlan {
+		const decoration = this.#frameDecoration;
+		if (!decoration || !this.#started || this.#stopped) return this.#renderContentFrame(viewport);
+		const insets = this.#frameInsets(viewport);
+		this.#decorationTop = insets.top;
+		const plan = this.#renderContentFrame({
+			columns: viewport.columns - insets.left,
+			rows: viewport.rows - insets.top,
+		});
+		return { ...plan, viewport: decoration.render(viewport, plan.viewport, insets) };
+	}
+
+	/** Preserve the composer lifecycle, retirement ledger and cursor while adding product chrome. */
+	setFrameDecoration(decoration: ComposerFrameDecoration | undefined): void {
+		this.#frameDecoration = decoration;
+		this.#dockToBottom = decoration !== undefined;
+		this.#decorationTop = 0;
+		this.ui.requestRender(true);
+	}
+
+	#frameInsets(viewport: ViewportSize): ComposerFrameInsets {
+		const requested = this.#frameDecoration?.measure(viewport);
+		return {
+			top: Math.max(0, Math.min(viewport.rows - 1, Math.floor(requested?.top ?? 0))),
+			left: Math.max(0, Math.min(viewport.columns - 1, Math.floor(requested?.left ?? 0))),
+		};
+	}
+
+	#renderContentFrame(viewport: ViewportSize): TerminalFramePlan {
 		if (!this.#started || this.#stopped) return { viewport: [] };
 		const width = Math.max(1, viewport.columns);
 		const rows = Math.max(0, viewport.rows);
@@ -394,7 +435,8 @@ export class Composer implements TerminalFrameProvider, NativeSurfaceProvider {
 			activeSpans.push({ start: span.start, end: span.end, candidates: () => ids });
 		}
 		const drop = Math.max(0, before.length + active.length + after.length - rows);
-		const mutable = [...before, ...active, ...after].slice(drop);
+		const dockPadding = this.#dockToBottom ? Math.max(0, rows - before.length - active.length - after.length) : 0;
+		const mutable = [...before, ...active, ...Array<string>(dockPadding).fill(""), ...after].slice(drop);
 		// Once a paint reaches the bottom row over committed history, rows above
 		// it may already be in native scrollback, which no later frame can pull
 		// back down. Keep the input on the bottom row instead of stranding a
@@ -428,7 +470,7 @@ export class Composer implements TerminalFrameProvider, NativeSurfaceProvider {
 			}
 		};
 		for (const span of activeSpans) shift(span, topPadding + before.length - drop);
-		for (const span of afterSpans) shift(span, topPadding + before.length + active.length - drop);
+		for (const span of afterSpans) shift(span, topPadding + before.length + active.length + dockPadding - drop);
 		this.#lastClickSpans = spans;
 		if (history !== undefined && this.#offeredHistory?.source === "header") {
 			const visibleHeaderRows = Math.max(0, rows - (mutable.length + drop));
@@ -550,7 +592,7 @@ export class Composer implements TerminalFrameProvider, NativeSurfaceProvider {
 	 * are never in the viewport). Callers intersect with the live registry.
 	 */
 	viewportClickCandidates(index: number): string[] {
-		return routeViewportClick(this.#lastClickSpans, index);
+		return routeViewportClick(this.#lastClickSpans, index - this.#decorationTop);
 	}
 
 	/**
@@ -586,6 +628,19 @@ export class Composer implements TerminalFrameProvider, NativeSurfaceProvider {
 
 	/** Render the semantic transcript tail while the terminal borrows its resize buffer. */
 	renderResizeFrame(viewport: ViewportSize): readonly string[] {
+		const decoration = this.#frameDecoration;
+		if (!decoration || !this.#started || this.#stopped) return this.#renderContentResizeFrame(viewport);
+		const insets = this.#frameInsets(viewport);
+		const contentSize = { columns: viewport.columns - insets.left, rows: viewport.rows - insets.top };
+		const content = this.#renderContentResizeFrame(contentSize);
+		return decoration.render(
+			viewport,
+			[...Array<string>(Math.max(0, contentSize.rows - content.length)).fill(""), ...content],
+			insets,
+		);
+	}
+
+	#renderContentResizeFrame(viewport: ViewportSize): readonly string[] {
 		if (!this.#started || this.#stopped) return [];
 		const width = Math.max(1, viewport.columns);
 		const rows = Math.max(0, viewport.rows);

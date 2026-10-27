@@ -1,5 +1,9 @@
 # My Agent 开发交接
 
+最新开发批次（2026-10-27）：已在单 agent main 接入墨线 TUI、会话草稿保持、审批自动退让及 F3 分组资源状态页。用户确认资源页改动生效，并明确要求先提交当前成果，再处理“中断后换任务、继续、排队恢复和 retry”的可靠性。范围、自动与真实终端/服务证据见 [墨线验证记录](docs/workflow-agent-ink-tui-verification.md)。没有推送；不把资源页确认扩展为第一阶段整体验收。
+
+中断专项的起点：实测中最新输入已进入供应商请求，但模型曾继续旧的未完成长列表。尚未确定是上下文边界还是模型遵循问题；先复现与逐层比对，再作最小修复。保持真实聊天、失败记录、授权和工具结果，不用清空历史掩盖问题。
+
 最新保存批次（2026-10-21，OMP 上游稳定性回移）：资源热开关已先保存为 main `5ae2bb2f29`、协作 `aa37e2fe13`。三批上游修复随后集成到 main，并同步到 `codex/team-scheduler-wait`；main 保持单 agent。模型通信/会话写盘、取消恢复/失败计量、通用显示/MCP/读取三批的 main 提交分别是 `7216f18627`、`115d1d3444`、`2b87fdd96b`，协作对应 `cf2757bef0`、`3f9d8b7c9f`、`6e0f44695e`。全部仅保存在本地，未推送。下方旧“未提交”等描述是历史记录，以本节和 Git 状态为准。
 
 本批完整产品回归：main **266 pass / 6 skip / 0 fail**，协作 **409 pass / 6 skip / 0 fail**。最终专项：AI 232、原生会话/MCP/SDK/写盘/读取 138、原生 read tool 75、TUI 10、fetch retry 37 项通过；AI/catalog/utils/agent/coding-agent/TUI 及两份产品包的 lint、格式和类型检查通过。两分支共享原生包目录一致，55 个回移文件逐一比对一致，产品源码未在这次回移中改变。详见 [上游来源与适配](docs/workflow-agent-upstream-backports.md) 和 [本批验证](docs/verification/upstream-stability-2026-10-21.json)。
