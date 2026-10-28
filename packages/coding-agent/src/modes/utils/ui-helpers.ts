@@ -1357,7 +1357,13 @@ export class UiHelpers {
 			firstLeftOut = firstAdmitted !== undefined && !firstFailed;
 			this.ctx.session.dropQueuedMessages(firstLeftOut ? deliveredByFlush : [...deliveredByFlush, ...firstQueued]);
 			const batch = firstLeftOut ? queuedMessages.filter(message => message !== firstPrompt) : queuedMessages;
-			this.ctx.compactionQueuedMessages = batch;
+			// Older input precedes anything queued while delivery awaited. A dropped first skill
+			// may already be back there; merge by identity so it is restored only once.
+			const batchMessages = new Set(batch);
+			this.ctx.compactionQueuedMessages = [
+				...batch,
+				...this.ctx.compactionQueuedMessages.filter(message => !batchMessages.has(message)),
+			];
 			reportFailure(batch.length, error);
 		};
 
@@ -1437,7 +1443,7 @@ export class UiHelpers {
 			// the batch, or puts it back if one already left it out.
 			const onFirstDropped = () => {
 				firstAdmitted = undefined;
-				if (!firstLeftOut) return;
+				if (restored && !firstLeftOut) return;
 				putFirstBack();
 				this.ctx.updatePendingMessagesDisplay();
 			};

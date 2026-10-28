@@ -154,14 +154,42 @@ describe("flushCompactionQueue failure", () => {
 
 		// Something else queues a prompt while the first prompt is still being set up.
 		await live.sendUserMessage("queued afterwards", { deliverAs: "followUp" });
+		const newer: CompactionQueuedMessage = { text: "newer compaction input", mode: "followUp" };
+		ctx.compactionQueuedMessages.push(newer);
 		setupFails.resolve();
 		await reported.promise;
-		expect(ctx.compactionQueuedMessages).toEqual(typed);
+		expect(ctx.compactionQueuedMessages).toEqual([...typed, newer]);
 
 		// The flush took back its own delivered message, not the one queued after it.
 		expect(live.getQueuedMessages().steering).toEqual([]);
 		expect(live.getQueuedMessages().followUp).toEqual(["queued afterwards"]);
 
+		await live.abort();
+		await running.catch(() => {});
+	});
+
+	it("preserves newer compaction input when an awaited delivery fails", async () => {
+		const { live, running } = await startStreamingSession();
+		const deliveryStarted = Promise.withResolvers<void>();
+		const release = Promise.withResolvers<void>();
+		vi.spyOn(live, "steer").mockImplementation(async () => {
+			deliveryStarted.resolve();
+			await release.promise;
+			throw new Error("delivery failed");
+		});
+		const typed: CompactionQueuedMessage[] = [{ text: "older input", mode: "steer" }];
+		const ctx = flushContext(live, typed, () => {});
+		const flushing = new UiHelpers(ctx).flushCompactionQueue({ willRetry: true });
+		await deliveryStarted.promise;
+		const newer: CompactionQueuedMessage[] = [
+			{ text: "older input", mode: "steer" },
+			{ text: "newest input", mode: "followUp" },
+		];
+		ctx.compactionQueuedMessages.push(...newer);
+		release.resolve();
+		await flushing;
+		expect(ctx.compactionQueuedMessages).toEqual([...typed, ...newer]);
+		expect(live.getQueuedMessages().steering).toEqual([]);
 		await live.abort();
 		await running.catch(() => {});
 	});
@@ -373,6 +401,85 @@ describe("flushCompactionQueue failure", () => {
 		// The skill invocation was never sent, so it returns to the batch instead of being lost.
 		expect(ctx.compactionQueuedMessages).toEqual(typed);
 
+		await live.abort();
+		await running.catch(() => {});
+	});
+
+	for (const admitted of [false, true]) {
+		for (const hasRest of [false, true]) {
+			it(`restores a skill dropped ${admitted ? "after" : "before"} admission with ${hasRest ? "successful rest" : "no rest"}`, async () => {
+				const { live, running } = await startStreamingSession();
+				const skillPath = tempDir.join("ship.md");
+				await Bun.write(skillPath, "---\nname: ship\n---\nShip it.\n");
+				const skills = new Map<string, Skill>([
+					[
+						"skill:ship",
+						{ name: "ship", description: "", filePath: skillPath, baseDir: tempDir.path(), source: "test" },
+					],
+				]);
+				const dropped = Promise.withResolvers<void>();
+				const pending = vi.spyOn(live, "promptCustomMessage").mockImplementation(async (_message, options) => {
+					if (admitted) options?.onPromptAdmitted?.();
+					await dropped.promise;
+					return false;
+				});
+				const first: CompactionQueuedMessage = { text: "/skill:ship now", mode: "steer" };
+				const typed: CompactionQueuedMessage[] = hasRest
+					? [first, { text: "successful rest", mode: "steer" }]
+					: [first];
+				const ctx = flushContext(live, typed, () => {}, skills);
+				await new UiHelpers(ctx).flushCompactionQueue();
+				const newer: CompactionQueuedMessage = { text: "newer input", mode: "followUp" };
+				ctx.compactionQueuedMessages.push(newer);
+				dropped.resolve();
+				await pending.mock.results[0]?.value;
+				expect(ctx.compactionQueuedMessages).toEqual([first, newer]);
+				// The successful rest remains owned by the session and must not be replayed.
+				expect(live.getQueuedMessages().steering).toEqual(hasRest ? ["successful rest"] : []);
+				await live.abort();
+				await running.catch(() => {});
+			});
+		}
+	}
+
+	it("restores a dropped first skill only once when a later pending delivery then fails", async () => {
+		const { live, running } = await startStreamingSession();
+		const skillPath = tempDir.join("ship.md");
+		await Bun.write(skillPath, "---\nname: ship\n---\nShip it.\n");
+		const skills = new Map<string, Skill>([
+			[
+				"skill:ship",
+				{ name: "ship", description: "", filePath: skillPath, baseDir: tempDir.path(), source: "test" },
+			],
+		]);
+		const dropped = Promise.withResolvers<void>();
+		const pending = vi.spyOn(live, "promptCustomMessage").mockImplementation(async () => {
+			await dropped.promise;
+			return false;
+		});
+		const deliveryStarted = Promise.withResolvers<void>();
+		const release = Promise.withResolvers<void>();
+		vi.spyOn(live, "steer").mockImplementation(async () => {
+			deliveryStarted.resolve();
+			await release.promise;
+			throw new Error("delivery failed");
+		});
+		const typed: CompactionQueuedMessage[] = [
+			{ text: "/skill:ship now", mode: "steer" },
+			{ text: "failed rest", mode: "steer" },
+		];
+		const ctx = flushContext(live, typed, () => {}, skills);
+		const flushing = new UiHelpers(ctx).flushCompactionQueue();
+		await deliveryStarted.promise;
+		dropped.resolve();
+		await pending.mock.results[0]?.value;
+		expect(ctx.compactionQueuedMessages).toEqual([typed[0]]);
+		const newer: CompactionQueuedMessage = { text: "newer input", mode: "followUp" };
+		ctx.compactionQueuedMessages.push(newer);
+		release.resolve();
+		await flushing;
+		expect(ctx.compactionQueuedMessages).toEqual([...typed, newer]);
+		expect(live.getQueuedMessages().steering).toEqual([]);
 		await live.abort();
 		await running.catch(() => {});
 	});
