@@ -18,6 +18,7 @@ const options = JSON.parse(process.argv[2]) as {
 	home: string;
 	cwd: string;
 	resultFile: string;
+	preset?: string;
 	light?: boolean;
 	approve?: boolean | "connect";
 	plan?: boolean;

@@ -210,6 +210,7 @@ export async function fixture(homeInsideWorkspace = false) {
 		},
 		async run(
 			options: {
+				preset?: string;
 				light?: boolean;
 				approve?: boolean | "connect";
 				plan?: boolean;
