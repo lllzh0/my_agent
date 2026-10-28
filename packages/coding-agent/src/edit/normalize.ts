@@ -50,3 +50,32 @@ export function normalizeUnicode(value: string): string {
 	if (!NON_ASCII_RE.test(trimmed)) return trimmed;
 	return trimmed.replace(UNICODE_REPLACEMENT_RE, replaceUnicodeCharacter).normalize("NFC");
 }
+
+export interface TextFileConvention {
+	bom: boolean;
+	crlf: boolean;
+}
+
+/**
+ * Give `content` the CRLF line endings and BOM of the file it replaces, as `edit` keeps them.
+ * Models write LF text, so without this replacing a CRLF file rewrites every line and drops its BOM.
+ * Each is independent: content with a carriage return keeps its line endings, content that starts
+ * with a BOM keeps it, and empty content stays empty. `applied` says which were added.
+ */
+export function applyTextFileConvention(
+	content: string,
+	convention: TextFileConvention | undefined,
+): { text: string; applied: TextFileConvention } {
+	const applied = { bom: false, crlf: false };
+	if (!convention) return { text: content, applied };
+	let text = content;
+	if (convention.crlf && text.includes("\n") && !text.includes("\r")) {
+		text = restoreLineEndings(text, "\r\n");
+		applied.crlf = true;
+	}
+	if (convention.bom && text.length > 0 && !text.startsWith("\uFEFF")) {
+		text = `\uFEFF${text}`;
+		applied.bom = true;
+	}
+	return { text, applied };
+}

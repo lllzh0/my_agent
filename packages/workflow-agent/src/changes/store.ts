@@ -128,9 +128,10 @@ export class JournalStore {
 	#snapshot(content: string | null): string | null {
 		if (content === null) return null;
 		const hash = digest(content);
+		// Bun 1.3.14 strips a leading BOM when binding a string; bind bytes and keep TEXT storage.
 		this.#db
-			.query("INSERT OR IGNORE INTO snapshots (hash, content, bytes) VALUES (?, ?, ?)")
-			.run(hash, content, Buffer.byteLength(content));
+			.query("INSERT OR IGNORE INTO snapshots (hash, content, bytes) VALUES (?, CAST(? AS TEXT), ?)")
+			.run(hash, Buffer.from(content, "utf8"), Buffer.byteLength(content));
 		return hash;
 	}
 

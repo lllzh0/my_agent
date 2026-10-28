@@ -1,3 +1,4 @@
+import { applyTextFileConvention, detectLineEnding, stripBom } from "@oh-my-pi/pi-coding-agent/edit/normalize";
 import { ReadTool } from "@oh-my-pi/pi-coding-agent/tools/read";
 import { WriteTool } from "@oh-my-pi/pi-coding-agent/tools/write";
 import { EditTool, replaceEditSchema } from "@oh-my-pi/pi-coding-agent/edit";
@@ -189,21 +190,31 @@ export function productTools(state: RunState, context: ToolSession): ToolDefinit
 			const path = plainPath(await policy.resolvePath(plainPath(input.path), "write"));
 			const revision = policy.revision;
 			const before = await state.journal.inspect(path);
+			const content = applyTextFileConvention(
+				input.content,
+				before === null
+					? undefined
+					: {
+							bom: stripBom(before).bom.length > 0,
+							crlf: detectLineEnding(before) === "\r\n",
+						},
+			).text;
+			if (Buffer.byteLength(content) > 1_000_000) throw new Error("直接文件修改只支持 1MB 以下的文本内容");
 			await policy.authorize(
 				{
 					tool: "write",
 					kind: "write",
 					target: path,
 					parameters: {
-						contentHash: digest(input.content),
+						contentHash: digest(content),
 						beforeHash: before === null ? null : digest(before),
-						...changePreview(path, before, input.content),
+						...changePreview(path, before, content),
 					},
 				},
 				signal,
 			);
 			policy.assertCurrent(revision);
-			return captureFile(path, signal, before, () => write.execute(id, { ...input, path }, signal, update));
+			return captureFile(path, signal, before, () => write.execute(id, { path, content }, signal, update));
 		},
 	});
 	pi.registerTool({

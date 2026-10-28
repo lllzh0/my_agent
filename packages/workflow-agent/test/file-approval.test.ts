@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { changePreview } from "../src/changes/preview";
 import type { Request } from "../src/policy/policy";
@@ -70,3 +71,50 @@ test("diff coverage and counts stay visible when a preview is bounded on either 
 		expect(formatApproval(request)).not.toContain("beforeHash");
 	}
 });
+
+test("BOM and CRLF writes approve only the changed line and restore exact bytes", async () => {
+	const f = await toolFixture();
+	try {
+		const target = path.join(f.cwd, "conventions.txt");
+		const original = "\uFEFFfirst\r\nsecond\r\n";
+		await Bun.write(target, original);
+		await f.run("write", { path: target, content: "updated\nsecond\n" });
+		expect(await fs.readFile(target, "utf8")).toBe("\uFEFFupdated\r\nsecond\r\n");
+		const approval = formatApproval(f.requests[0]!);
+		expect(approval).toContain("新增 1 行 · 删除 1 行");
+		expect(approval).toContain("-\uFEFFfirst");
+		expect(approval).toContain("+\uFEFFupdated");
+		await f.runtime.journal.restore(f.runtime.journal.latestTurn()[0]!.id);
+		expect(await fs.readFile(target, "utf8")).toBe(original);
+	} finally {
+		await f.close();
+	}
+}, 30_000);
+test("BOM-only external changes during approval reject stale writes", async () => {
+	const f = await toolFixture();
+	try {
+		const target = path.join(f.cwd, "bom-conflict.txt");
+		await Bun.write(target, "first\r\nsecond\r\n");
+		f.policy.setApprover(async () => {
+			await Bun.write(target, "\uFEFFfirst\r\nsecond\r\n");
+			return "once";
+		});
+		await expect(f.run("write", { path: target, content: "updated\nsecond\n" })).rejects.toThrow(/预览后发生变化/);
+		expect(await fs.readFile(target, "utf8")).toBe("\uFEFFfirst\r\nsecond\r\n");
+		expect(f.runtime.journal.list()).toEqual([]);
+	} finally {
+		await f.close();
+	}
+}, 30_000);
+test("CRLF normalization enforces the final one MB write limit before approval", async () => {
+	const f = await toolFixture();
+	try {
+		const target = path.join(f.cwd, "limit.txt");
+		await Bun.write(target, "old\r\n");
+		await expect(f.run("write", { path: target, content: "a\n".repeat(400_000) })).rejects.toThrow(/1MB/);
+		expect(f.requests).toEqual([]);
+		expect(await fs.readFile(target, "utf8")).toBe("old\r\n");
+	} finally {
+		await f.close();
+	}
+}, 30_000);

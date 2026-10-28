@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Whole-file writes retain existing CRLF line endings and UTF-8 BOMs and stop safely when cancelled during convention detection.
+
 ### Added
 
 - Windows MCP stdio shutdown retains a stable native process handle and stops the server's descendant tree.

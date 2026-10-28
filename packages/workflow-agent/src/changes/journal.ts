@@ -109,7 +109,7 @@ export class ChangeJournal {
 				throw new Error("恢复只支持 1MB 以下的普通文本文件");
 			const bytes = await fs.readFile(target);
 			if (bytes.includes(0)) throw new Error("二进制文件不进入文本修改记录");
-			return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+			return new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes);
 		} catch (error) {
 			if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
 			throw error;

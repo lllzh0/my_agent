@@ -339,3 +339,21 @@ test("close drains a pending capture and rejects later operations without side e
 		);
 	});
 });
+
+test("BOM snapshot bytes survive database reopen and restore", async () => {
+	await withJournal(async ({ workspace, open }) => {
+		const target = path.join(workspace, "bom.txt");
+		const original = "\uFEFFfirst\r\nsecond\r\n";
+		const updated = "\uFEFFupdated\r\nsecond\r\n";
+		await Bun.write(target, original);
+		const journal = open();
+		await journal.capture("bom", target, () => Bun.write(target, updated));
+		await journal.close();
+		const reopened = open();
+		await reopened.load();
+		assert.equal(reopened.latestTurn()[0]!.before, original);
+		assert.equal(reopened.latestTurn()[0]!.after, updated);
+		await reopened.restore(reopened.latestTurn()[0]!.id);
+		assert.equal(await fs.readFile(target, "utf8"), original);
+	});
+});
