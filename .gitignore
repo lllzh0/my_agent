@@ -18,7 +18,8 @@ target/
 # Environment
 .env
 .env.*
-/env.local
+env.local
+env.local.*
 !.env.example
 !.env.sample
 !.env.template
@@ -51,6 +52,8 @@ target/
 # Bun compile temp artifacts, left in cwd if a `Bun.build({ compile })` run is killed mid-write
 *.bun-build
 .DS_Store
+Thumbs.db
+desktop.ini
 
 # Logs & profiling
 *.log
