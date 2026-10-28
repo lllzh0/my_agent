@@ -1,5 +1,7 @@
 # My Agent 开发交接
 
+最新保存与优化（2026-10-28）：批次 1/3 和 Windows 支持已按用户要求提交为 `5ea44a5eb8`，未推送。随后最小修复 Windows 初始化等待不能及时取消的问题：回归先失败后通过，真实取消约 3.76 ms，无落盘副作用，后续命令成功。该后续优化尚未提交。热准备只占约 0.2–0.3 秒，原生启动仍约 9–11 秒；固定上游源码确认 MCP stdin 在发送内部配置后被关闭，门控继续保留。范围、证据及边界见 [Windows 验证](docs/verification/windows-2026-10-28.md)。下方批次“未提交”描述属于保存点之前。
+
 Windows 优先批次（2026-10-28）：已接入 Windows 原生包、PowerShell、进程树取消、路径限制和 0.0.81 Windows alpha 沙箱，macOS 保留原依赖。用户确认后已安装本机账户/WFP，真实命令隔离通过 26 次断言；使用用户提供的密钥完成 OpenCode Go / DeepSeek V4.1 Flash 的 `max` 思考、沙箱命令及自然回复链路，第二轮模型延迟约 272 秒。产品 tsgo、x64 组件、CLI/恢复及真实 ConPTY 离线交互已通过。本机隔离 stdin 探针为空，因此普通权限启动前拒绝本地 MCP；显式 full 的真实协议及后代清理通过，HTTP MCP 保留。旧宿主集成超时和全新环境准备未闭合。Windows alpha 本机已观察到匿名令牌 loopback 残余。完整证据见 [Windows 验证](docs/verification/windows-2026-10-28.md)，安装与限制见 [Windows 使用说明](docs/workflow-agent-windows.md)。批次 1/3 改动保留，均未提交、未推送。下方 macOS 独占准备说明为旧基线。
 
 最新开发批次（2026-10-28，批次 1 / 3）：已在 main 工作树接入审批片段差异、只读详情和命令结果摘要，以及命名预设启动最小版。`preset list/create/show/check` 管理清单，`--preset <ID>` 使用独立 SDK 与会话目录，`/preset show` 显示实际状态；模型和 MCP 引用共享配置，不复制凭据。命名预设首批冻结资源，修改清单后重启；原入口保留资源热开关。运行中切换、默认绑定和完整编辑器未做，main 仍为单 agent，未提交、未推送。用法见 [工作流预设](docs/workflow-agent-presets.md)。本机 Windows 的定向验证及依赖安装限制见 [本批验证](docs/verification/batches-1-3-2026-10-28.md)；这不是 Windows 运行时支持或真实 macOS 终端验收。下方历史“预设未开始”等描述以本节为准。

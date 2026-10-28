@@ -2,6 +2,7 @@ import { SandboxManager, type SandboxRuntimeConfig } from "@my-agent/windows-san
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
+import { untilAborted } from "@oh-my-pi/pi-utils";
 import { filterManagedSkillRoots } from "../policy/policy";
 import type { ExecutionScope } from "./supervisor";
 import { commandScript, productShell, type CommandInvocation } from "./shell";
@@ -82,11 +83,11 @@ export class WindowsSandbox {
 	async prepare(command: string, signal?: AbortSignal, scope: ExecutionScope = {}): Promise<CommandInvocation> {
 		if (this.#closing) throw new Error("Windows 沙箱已关闭");
 		signal?.throwIfAborted();
-		this.#initialized ??= this.#initialize().catch(error => {
+		const initialized = (this.#initialized ??= this.#initialize().catch(error => {
 			this.#initialized = undefined;
 			throw error;
-		});
-		await this.#initialized;
+		}));
+		await untilAborted(signal, () => initialized);
 		if (this.#closing) throw new Error("Windows 沙箱已关闭");
 		signal?.throwIfAborted();
 		// Windows grants are fixed at initialize(); a changed read scope requires restart.

@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Windows 沙箱初始化期间可立即取消命令，被取消的命令不会执行，其他等待中的命令可继续使用同一次初始化。
+
 ### Added
 
 - 新增原生 Windows 组件准备、PowerShell 命令、本地 MCP 和进程树取消，Windows alpha 沙箱可通过 `agent:sandbox install/status` 单独安装与检查。
