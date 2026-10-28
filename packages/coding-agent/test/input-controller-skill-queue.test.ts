@@ -48,7 +48,13 @@ type PromptCustomMessage = Mock<
 			attribution?: string;
 			details: SkillPromptDetails;
 		},
-		options?: { streamingBehavior?: "steer" | "followUp"; queueChipText?: string; queueOnly?: boolean },
+		options?: {
+			streamingBehavior?: "steer" | "followUp";
+			queueChipText?: string;
+			queueOnly?: boolean;
+			onPromptQueued?: (queued: readonly unknown[]) => void;
+			onPromptAdmitted?: () => void;
+		},
 	) => Promise<void>
 >;
 
@@ -450,6 +456,7 @@ describe("compaction skill re-invocation", () => {
 				steer,
 				followUp,
 				clearQueue: vi.fn(),
+				dropQueuedMessages: vi.fn(),
 			},
 		} as unknown as InteractiveModeContext;
 		return { ctx, promptCustomMessage, promptCustomMessageCalled, prompt, steer, followUp, armLoopAutoSubmit };
@@ -508,6 +515,8 @@ describe("compaction skill re-invocation", () => {
 		expect(options).toEqual({
 			streamingBehavior: "followUp",
 			queueChipText: "/skill:test-skill arg1 arg2",
+			onPromptQueued: expect.any(Function),
+			onPromptAdmitted: expect.any(Function),
 		});
 		expect(prompt).not.toHaveBeenCalled();
 		expect(steer).not.toHaveBeenCalled();

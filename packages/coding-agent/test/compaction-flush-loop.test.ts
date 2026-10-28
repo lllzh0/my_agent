@@ -29,6 +29,7 @@ function makeCtx(
 			prompt,
 			promptCustomMessage: mock(async () => true),
 			clearQueue: () => ({ steering: [], followUp: [] }),
+			dropQueuedMessages: () => {},
 		},
 		editor: { setText: () => {} },
 		compactionQueuedMessages: [...initialQueue],

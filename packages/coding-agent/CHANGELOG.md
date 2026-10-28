@@ -4,6 +4,8 @@
 
 ### Fixed
 
+- Messages queued during compaction recover after delivery failures without losing unrelated queued work or replaying an admitted prompt.
+
 - Whole-file writes retain existing CRLF line endings and UTF-8 BOMs and stop safely when cancelled during convention detection.
 
 ### Added

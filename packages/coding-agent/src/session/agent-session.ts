@@ -7407,6 +7407,7 @@ export class AgentSession implements SettingsScope {
 				prependMessages: keywordNotices,
 				rawText: typedText,
 				onPromptAdmitted: options?.onPromptAdmitted,
+				onPromptQueued: options?.onPromptQueued,
 				promptGeneration: queueGeneration,
 			});
 			outcome.sessionClaimed = queued;
@@ -7486,6 +7487,7 @@ export class AgentSession implements SettingsScope {
 					descriptionNotice: imageDescriptionNotice,
 				},
 				onPromptAdmitted: options?.onPromptAdmitted,
+				onPromptQueued: options?.onPromptQueued,
 			});
 			outcome.sessionClaimed = true;
 			return true;
@@ -7584,7 +7586,7 @@ export class AgentSession implements SettingsScope {
 	 */
 	async promptCustomMessage<T = unknown>(
 		message: Pick<CustomMessage<T>, "customType" | "content" | "display" | "details" | "attribution">,
-		options?: Pick<PromptOptions, "streamingBehavior" | "toolChoice" | "onPromptAdmitted"> & {
+		options?: Pick<PromptOptions, "streamingBehavior" | "toolChoice" | "onPromptAdmitted" | "onPromptQueued"> & {
 			queueChipText?: string;
 			queueOnly?: boolean;
 		},
@@ -7594,7 +7596,7 @@ export class AgentSession implements SettingsScope {
 
 	async #promptCustomMessage<T = unknown>(
 		message: Pick<CustomMessage<T>, "customType" | "content" | "display" | "details" | "attribution">,
-		options?: Pick<PromptOptions, "streamingBehavior" | "toolChoice" | "onPromptAdmitted"> & {
+		options?: Pick<PromptOptions, "streamingBehavior" | "toolChoice" | "onPromptAdmitted" | "onPromptQueued"> & {
 			queueChipText?: string;
 			queueOnly?: boolean;
 		},
@@ -7615,7 +7617,7 @@ export class AgentSession implements SettingsScope {
 	async #dispatchCustomPrompt<T = unknown>(
 		message: Pick<CustomMessage<T>, "customType" | "content" | "display" | "details" | "attribution">,
 		options:
-			| (Pick<PromptOptions, "streamingBehavior" | "toolChoice" | "onPromptAdmitted"> & {
+			| (Pick<PromptOptions, "streamingBehavior" | "toolChoice" | "onPromptAdmitted" | "onPromptQueued"> & {
 					queueChipText?: string;
 					queueOnly?: boolean;
 			  })
@@ -7654,6 +7656,7 @@ export class AgentSession implements SettingsScope {
 				queueChipText: options?.queueChipText,
 				prependMessages: keywordNotices,
 				onPromptAdmitted: options?.onPromptAdmitted,
+				onPromptQueued: options?.onPromptQueued,
 			});
 			outcome.sessionClaimed = true;
 			return true;
@@ -7700,6 +7703,7 @@ export class AgentSession implements SettingsScope {
 				preprocessed: { content: preparedMessage.content, descriptionNotice },
 				prependMessages: keywordNotices,
 				onPromptAdmitted: options?.onPromptAdmitted,
+				onPromptQueued: options?.onPromptQueued,
 			});
 			outcome.sessionClaimed = true;
 			return true;
@@ -8297,6 +8301,7 @@ export class AgentSession implements SettingsScope {
 			timestamp: submittedAt,
 			attribution: options?.attribution,
 			rawText: text,
+			onPromptQueued: options?.onPromptQueued,
 		});
 	}
 
@@ -8328,6 +8333,7 @@ export class AgentSession implements SettingsScope {
 				timestamp: submittedAt,
 				attribution: options?.attribution,
 				rawText: text,
+				onPromptQueued: options?.onPromptQueued,
 			});
 			return;
 		}
@@ -8345,7 +8351,7 @@ export class AgentSession implements SettingsScope {
 			: undefined;
 		this.#allowQueuedMessageDrainRetry();
 		if (imageDescriptionNotice) this.agent.followUp(imageDescriptionNotice);
-		this.agent.followUp({
+		const directive: AgentMessage = {
 			role: "developer",
 			content,
 			attribution: options.attribution ?? "agent",
@@ -8354,7 +8360,9 @@ export class AgentSession implements SettingsScope {
 			// behind a busy turn): replay uses the marker to clear the preceding
 			// user's prompt anchor, matching the live agent_start clear.
 			synthetic: true,
-		});
+		};
+		this.agent.followUp(directive);
+		options.onPromptQueued?.(imageDescriptionNotice ? [imageDescriptionNotice, directive] : [directive]);
 		this.#scheduleIdleQueueDrain();
 	}
 
@@ -8411,6 +8419,7 @@ export class AgentSession implements SettingsScope {
 			};
 			/** Called synchronously once the message is pushed onto its queue. See {@link PromptOptions.onPromptAdmitted}. */
 			onPromptAdmitted?: () => void;
+			onPromptQueued?: PromptOptions["onPromptQueued"];
 			/**
 			 * `#promptGeneration` captured when prompt() took this submission. abort() (or a
 			 * history rewrite) bumps it; if that lands while images are being prepared, the
@@ -8473,33 +8482,26 @@ export class AgentSession implements SettingsScope {
 			return true;
 		}
 		this.#allowQueuedMessageDrainRetry();
-		// Publish the complete group without yielding: removal owns contiguous companions.
-		if (mode === "followUp") {
-			for (const notice of prependMessages) this.agent.followUp(notice);
-			for (const notice of attachmentSourceNotices) this.agent.followUp(notice);
-			if (imageDescriptionNotice) this.agent.followUp(imageDescriptionNotice);
-			const userMessage: AgentMessage = {
-				role: "user",
-				content,
-				attribution,
-				timestamp: timestamp ?? Date.now(),
-			};
-			this.#queuedMessageRawText.set(userMessage, rawText);
-			this.agent.followUp(userMessage);
-		} else {
-			for (const notice of prependMessages) this.agent.steer(notice);
-			for (const notice of attachmentSourceNotices) this.agent.steer(notice);
-			if (imageDescriptionNotice) this.agent.steer(imageDescriptionNotice);
-			const userMessage: AgentMessage = {
-				role: "user",
-				content,
-				steering: true,
-				attribution,
-				timestamp: timestamp ?? Date.now(),
-			};
-			this.#queuedMessageRawText.set(userMessage, rawText);
-			this.agent.steer(userMessage);
+		// Publish the complete group without yielding so its ownership is unambiguous.
+		const userMessage: AgentMessage = {
+			role: "user",
+			content,
+			...(mode === "steer" ? { steering: true } : {}),
+			attribution,
+			timestamp: timestamp ?? Date.now(),
+		};
+		this.#queuedMessageRawText.set(userMessage, rawText);
+		const queued: AgentMessage[] = [
+			...prependMessages,
+			...attachmentSourceNotices,
+			...(imageDescriptionNotice ? [imageDescriptionNotice] : []),
+			userMessage,
+		];
+		for (const message of queued) {
+			if (mode === "followUp") this.agent.followUp(message);
+			else this.agent.steer(message);
 		}
+		options?.onPromptQueued?.(queued);
 		options?.onPromptAdmitted?.();
 		this.#scheduleIdleQueueDrain();
 		return true;
@@ -8704,6 +8706,7 @@ export class AgentSession implements SettingsScope {
 			prependMessages?: readonly CustomMessage[];
 			/** Called synchronously once the message is pushed onto its queue. See {@link PromptOptions.onPromptAdmitted}. */
 			onPromptAdmitted?: () => void;
+			onPromptQueued?: PromptOptions["onPromptQueued"];
 		},
 	): Promise<void> {
 		// Captured before the normalization await below — see #sessionGeneration's doc comment.
@@ -8765,6 +8768,11 @@ export class AgentSession implements SettingsScope {
 			if (descriptionNotice) this.agent.steer(descriptionNotice);
 			this.agent.steer(normalizedAppMessage);
 		}
+		options?.onPromptQueued?.([
+			...prependMessages,
+			...(descriptionNotice ? [descriptionNotice] : []),
+			normalizedAppMessage,
+		]);
 		onPromptAdmitted?.();
 		this.#scheduleIdleQueueDrain();
 	}
@@ -9039,6 +9047,15 @@ export class AgentSession implements SettingsScope {
 			images,
 			streamingBehavior: deliveredAsAside ? "aside" : "steer",
 		});
+	}
+
+	/** Remove exactly the reported queue objects, preserving other sources' messages. */
+	dropQueuedMessages(messages: Iterable<AgentMessage>): void {
+		const dropped = new Set(messages);
+		if (dropped.size === 0) return;
+		const kept = (queue: readonly AgentMessage[]): AgentMessage[] => queue.filter(message => !dropped.has(message));
+		this.agent.replaceQueues(kept(this.agent.peekSteeringQueue()), kept(this.agent.peekFollowUpQueue()));
+		this.#reconcileQueuedMessageDrain();
 	}
 
 	/** Clear queued messages and return the user-restorable ones (text plus any attached images).

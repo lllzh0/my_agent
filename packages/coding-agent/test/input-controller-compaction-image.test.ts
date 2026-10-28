@@ -44,6 +44,7 @@ function makeCtx(initialQueue: CompactionQueuedMessage[] = []) {
 		isCompacting: false,
 		extensionRunner: undefined,
 		customCommands: [] as Array<{ command: { name: string } }>,
+		dropQueuedMessages: () => {},
 		getQueuedMessages: () => ({ steering: [] as string[], followUp: [] as string[] }),
 		clearQueue: () => ({ steering: [] as RestoredQueuedMessage[], followUp: [] as RestoredQueuedMessage[] }),
 		prompt: mock(async (text: string, opts?: PromptOpts): Promise<void> => {

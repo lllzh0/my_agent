@@ -441,6 +441,12 @@ export interface PromptOptions {
 	 * failed before admission still only settles through the returned promise.
 	 */
 	onPromptAdmitted?: () => void;
+	/**
+	 * Called synchronously when this prompt enters the steer or follow-up queue,
+	 * just before onPromptAdmitted, with its hidden companions then the prompt.
+	 * Not called for a new turn or an aside. Allows exact queue ownership recovery.
+	 */
+	onPromptQueued?: (queued: readonly AgentMessage[]) => void;
 }
 
 /** Payload for {@link AgentSession.setPromptDropped}: a user prompt cancelled
@@ -461,12 +467,16 @@ export interface FollowUpOptions {
 	expandPromptTemplates?: boolean;
 	/** Explicit billing/initiator attribution. */
 	attribution?: MessageAttribution;
+	/** Reports the exact messages pushed onto this queue. */
+	onPromptQueued?: PromptOptions["onPromptQueued"];
 }
 
 /** Options for AgentSession.steer(). */
 export interface SteerOptions {
 	/** Explicit billing/initiator attribution. */
 	attribution?: MessageAttribution;
+	/** Reports the exact messages pushed onto this queue. */
+	onPromptQueued?: PromptOptions["onPromptQueued"];
 }
 
 /** Options for AgentSession.sendUserMessage(). */

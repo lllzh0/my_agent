@@ -1,3 +1,4 @@
+import type { AgentMessage } from "@oh-my-pi/pi-agent-core";
 import type { ImageContent, TextContent } from "@oh-my-pi/pi-ai";
 import { buildSkillPromptMessage, getSkillSlashCommandName, parseSkillInvocation } from "../extensibility/skills";
 import { type CustomMessage, SKILL_PROMPT_MESSAGE_TYPE, type SkillPromptDetails } from "../session/messages";
@@ -35,6 +36,8 @@ interface InvokeSkillCommandOptions {
 	queueOnly?: boolean;
 	images?: ImageContent[];
 	imageLinks?: (string | undefined)[];
+	/** Reports the messages owned by this queue-only invocation. */
+	onPromptQueued?: (queued: readonly AgentMessage[]) => void;
 	/**
 	 * Paint the built row before the awaited dispatch so a slow preflight (memory
 	 * recall, `before_agent_start` hooks, auto-thinking, pre-prompt compaction)
@@ -95,7 +98,9 @@ export async function invokeSkillCommandFromText(
 	try {
 		const built = await buildSkillCommandPrompt(ctx, text, streamingBehavior, options?.images);
 		if (!built) return false;
-		const promptOptions = options?.queueOnly ? { ...built.options, queueOnly: true } : built.options;
+		const promptOptions = options?.queueOnly
+			? { ...built.options, queueOnly: true, onPromptQueued: options.onPromptQueued }
+			: built.options;
 		optimistic = options?.optimistic === true && !options?.queueOnly && !ctx.session.isStreaming;
 		if (optimistic) {
 			ctx.renderOptimisticSkillMessage(
