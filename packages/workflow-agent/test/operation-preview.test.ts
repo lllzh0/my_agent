@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
-import { chooseApproval, formatApproval, formatCommandResult } from "../src/tui/operation-preview";
+import { chooseApproval, formatApproval } from "../src/tui/operation-preview";
+import { formatCommandResult } from "../src/tui/command-result";
 import type { Job } from "../src/processes/supervisor";
 
 test("edit approval shows removed and added lines without turning the preview into a grant", () => {
@@ -98,4 +99,21 @@ test("closing read-only details returns to approval and cancellation denies", as
 	expect(inspected).toBe(1);
 	expect(prompts).toBe(2);
 	expect(decision).toBe("deny");
+});
+
+test("approval details strip terminal escapes before masking visible credentials", () => {
+	const text = formatApproval({
+		tool: "write",
+		kind: "write",
+		target: "file.txt",
+		parameters: {
+			previewKind: "create",
+			diff: "+sk-\x1b[31mFAKE_ONLY\tvalue\x1b[2J",
+			addedLines: 1,
+			removedLines: 0,
+		},
+	});
+	expect(text).toContain("[REDACTED]");
+	expect(text).not.toContain("FAKE_ONLY");
+	expect(text).not.toMatch(/[\x1b\t]/);
 });

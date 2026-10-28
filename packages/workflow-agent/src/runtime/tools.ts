@@ -9,6 +9,7 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import type { RunState } from "./state";
 import { digest } from "../storage";
+import { changePreview } from "../changes/preview";
 import { resourceDisabled } from "./resources";
 import { toolDescriptions } from "./tool-prompts";
 import readDescription from "../prompts/tool-read.md" with { type: "text" };
@@ -19,15 +20,27 @@ import sourceReadDescription from "../prompts/tool-read-source.md" with { type: 
 import sourceSearchDescription from "../prompts/tool-search-source.md" with { type: "text" };
 import lsDescription from "../prompts/tool-ls.md" with { type: "text" };
 import { Search } from "../search/search";
-import { Text, replaceTabs } from "@oh-my-pi/pi-tui";
-import { sanitizeText } from "@oh-my-pi/pi-utils";
-import type { Job } from "../processes/supervisor";
-import { formatCommandResult } from "../tui/operation-preview";
+import { Text } from "@oh-my-pi/pi-tui";
+import { formatCommandOutput, formatCommandResult, type CommandResultDetails } from "../tui/command-result";
 
 export const result = (value: unknown) => ({
 	content: [{ type: "text" as const, text: typeof value === "string" ? value : JSON.stringify(value, null, 2) }],
 	details: {},
 });
+
+const renderCommandResult: ToolDefinition["renderResult"] = (output, options) => {
+	const details = output.details as CommandResultDetails | undefined;
+	const text = details?.job
+		? formatCommandResult(details.job, options.expanded, details.logPage)
+		: formatCommandOutput(
+				output.content
+					.filter(item => item.type === "text")
+					.map(item => item.text)
+					.join("\n"),
+				options.expanded,
+			);
+	return new Text(text, 0, 0);
+};
 
 /** Keep retained tool handles and child sessions subject to the same human switch. */
 export function withResourceSwitch(tool: ToolDefinition, state: RunState): ToolDefinition {
@@ -43,7 +56,8 @@ export function withResourceSwitch(tool: ToolDefinition, state: RunState): ToolD
 // Native file tools interpret URI, selector, wildcard and multi-path syntax.
 // Resolve only plain paths so their eventual target matches our policy check.
 function plainPath(value: string): string {
-	if ([";", ":", "[", "]", "*", "?", "\0", "\r", "\n"].some(character => value.includes(character)))
+	const suffix = process.platform === "win32" && /^[a-z]:[/\\]/i.test(value) ? value.slice(2) : value;
+	if ([";", ":", "[", "]", "*", "?", "\0", "\r", "\n"].some(character => suffix.includes(character)))
 		throw new Error("文件工具只接受普通路径；行范围请使用 offset 和 limit，不接受内联选择器或通配符。");
 	return value;
 }
@@ -59,17 +73,18 @@ export function productTools(state: RunState, context: ToolSession): ToolDefinit
 	};
 	const { policy } = state;
 	const search = new Search(policy);
-	const pendingFiles = new Map<string, { revision: number; signal?: AbortSignal }>();
+	const pendingFiles = new Map<string, { revision: number; signal?: AbortSignal; before: string | null }>();
 	const captureFile = <T>(
 		target: string,
 		signal: AbortSignal | undefined,
+		before: string | null,
 		operation: () => Promise<T>,
 	): Promise<T> => {
 		const revision = policy.revision;
 		return state.journal.capture(state.turn, target, async () => {
 			policy.assertCurrent(revision);
 			signal?.throwIfAborted();
-			pendingFiles.set(target, { revision, signal });
+			pendingFiles.set(target, { revision, signal, before });
 			try {
 				return await operation();
 			} finally {
@@ -126,6 +141,10 @@ export function productTools(state: RunState, context: ToolSession): ToolDefinit
 			policy.assertCurrent(pending.revision);
 			pending.signal?.throwIfAborted();
 			policy.checkMode({ tool: "file", kind: "write", target });
+			if ((await state.journal.inspect(target)) !== pending.before)
+				throw new Error("文件在预览后发生变化，未写入；请重新读取并批准当前修改。");
+			policy.assertCurrent(pending.revision);
+			pending.signal?.throwIfAborted();
 			await Bun.write(target, content);
 		},
 	};
@@ -169,6 +188,7 @@ export function productTools(state: RunState, context: ToolSession): ToolDefinit
 				throw new Error("直接文件修改只支持 1MB 以下的文本内容");
 			const path = plainPath(await policy.resolvePath(plainPath(input.path), "write"));
 			const revision = policy.revision;
+			const before = await state.journal.inspect(path);
 			await policy.authorize(
 				{
 					tool: "write",
@@ -176,14 +196,14 @@ export function productTools(state: RunState, context: ToolSession): ToolDefinit
 					target: path,
 					parameters: {
 						contentHash: digest(input.content),
-						preview: input.content.slice(0, 2000),
-						previewTruncated: input.content.length > 2000,
+						beforeHash: before === null ? null : digest(before),
+						...changePreview(path, before, input.content),
 					},
 				},
 				signal,
 			);
 			policy.assertCurrent(revision);
-			return captureFile(path, signal, () => write.execute(id, { ...input, path }, signal, update));
+			return captureFile(path, signal, before, () => write.execute(id, { ...input, path }, signal, update));
 		},
 	});
 	pi.registerTool({
@@ -197,6 +217,7 @@ export function productTools(state: RunState, context: ToolSession): ToolDefinit
 				throw new Error("直接文件修改只支持 1MB 以下的文本内容");
 			const path = plainPath(await policy.resolvePath(plainPath(input.path), "write"));
 			const revision = policy.revision;
+			const before = await state.journal.inspect(path);
 			await policy.authorize(
 				{
 					tool: "edit",
@@ -204,16 +225,15 @@ export function productTools(state: RunState, context: ToolSession): ToolDefinit
 					target: path,
 					parameters: {
 						editsHash: digest(JSON.stringify(input)),
-						before: input.old_string.slice(0, 1000),
-						after: input.new_string.slice(0, 1000),
+						beforeHash: before === null ? null : digest(before),
+						...changePreview(path, input.old_string, input.new_string, true),
 						replaceAll: input.replace_all === true,
-						previewTruncated: input.old_string.length > 1000 || input.new_string.length > 1000,
 					},
 				},
 				signal,
 			);
 			policy.assertCurrent(revision);
-			return captureFile(path, signal, () => edit.execute(id, { ...input, path }, signal, update));
+			return captureFile(path, signal, before, () => edit.execute(id, { ...input, path }, signal, update));
 		},
 	});
 	pi.registerTool({
@@ -236,16 +256,7 @@ export function productTools(state: RunState, context: ToolSession): ToolDefinit
 			const completed = input.background ? job : await state.jobs.wait(job.id);
 			return { ...result(completed), details: { job: completed } };
 		},
-		renderResult(output, options) {
-			const job = (output.details as { job?: Job } | undefined)?.job;
-			const text = job
-				? formatCommandResult(job, options.expanded)
-				: output.content
-						.filter(item => item.type === "text")
-						.map(item => item.text)
-						.join("\n");
-			return new Text(replaceTabs(sanitizeText(text)), 0, 0);
-		},
+		renderResult: renderCommandResult,
 	});
 	const searchFields = {
 		path: Type.Optional(Type.String()),
@@ -404,6 +415,7 @@ export function productTools(state: RunState, context: ToolSession): ToolDefinit
 			const content = state.research.report(input.claims);
 			const path = plainPath(await policy.resolvePath(plainPath(input.path), "write"));
 			const revision = policy.revision;
+			const before = await state.journal.inspect(path);
 			await policy.authorize(
 				{
 					tool: "write_report",
@@ -411,14 +423,14 @@ export function productTools(state: RunState, context: ToolSession): ToolDefinit
 					target: path,
 					parameters: {
 						contentHash: digest(content),
-						preview: content.slice(0, 2000),
-						previewTruncated: content.length > 2000,
+						beforeHash: before === null ? null : digest(before),
+						...changePreview(path, before, content),
 					},
 				},
 				signal,
 			);
 			policy.assertCurrent(revision);
-			return captureFile(path, signal, () => write.execute(id, { path, content }, signal, update));
+			return captureFile(path, signal, before, () => write.execute(id, { path, content }, signal, update));
 		},
 	});
 	pi.registerTool({
@@ -470,8 +482,17 @@ export function productTools(state: RunState, context: ToolSession): ToolDefinit
 		description: toolDescriptions.description8,
 		parameters: Type.Object({ id: Type.String(), cursor: Type.Optional(Type.Number()) }),
 		async execute(_id, input) {
-			return result(state.jobs.output(input.id, input.cursor));
+			const output = state.jobs.output(input.id, input.cursor);
+			const job = state.jobs.list().find(job => job.id === input.id);
+			return {
+				...result(output),
+				details: {
+					job: job && { ...job, log: output.text },
+					logPage: { cursor: output.cursor, truncated: output.truncated },
+				},
+			};
 		},
+		renderResult: renderCommandResult,
 	});
 	pi.registerTool({
 		name: "job_stop",
@@ -480,8 +501,11 @@ export function productTools(state: RunState, context: ToolSession): ToolDefinit
 		parameters: Type.Object({ id: Type.String() }),
 		async execute(_id, input) {
 			await state.jobs.stop(input.id);
-			return result(state.jobs.list());
+			const jobs = state.jobs.list();
+			const job = jobs.find(job => job.id === input.id);
+			return { ...result(jobs), details: { job: job && { ...job, log: state.jobs.output(input.id).text } } };
 		},
+		renderResult: renderCommandResult,
 	});
 	return tools.map(tool => withResourceSwitch(tool, state));
 }

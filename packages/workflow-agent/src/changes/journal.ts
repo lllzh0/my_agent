@@ -141,6 +141,12 @@ export class ChangeJournal {
 		});
 	}
 
+	/** Reuse the same text/path limits for approval and final write validation. */
+	async inspect(target: string): Promise<string | null> {
+		this.#assertOpen();
+		return this.#text(await this.#validatedPath(target));
+	}
+
 	async restore(id: string): Promise<void> {
 		await this.restoreMany([id]);
 	}
