@@ -72,6 +72,7 @@
 	"scripts": {
 		"agent": "bun packages/workflow-agent/src/launcher.ts",
 		"agent:prepare": "bun packages/workflow-agent/scripts/prepare.ts",
+		"agent:sandbox": "bun packages/workflow-agent/scripts/windows-sandbox.ts",
 		"setup": "bun scripts/setup.ts",
 		"dev": "bun --cwd=packages/coding-agent src/cli.ts",
 		"dev:timing": "PI_TIMING=x bun --cwd=packages/coding-agent --preload ../utils/src/module-timer.ts src/cli.ts",

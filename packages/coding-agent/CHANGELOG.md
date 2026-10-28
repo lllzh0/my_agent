@@ -4,6 +4,7 @@
 
 ### Added
 
+- Windows MCP stdio shutdown retains a stable native process handle and stops the server's descendant tree.
 - Embedded hosts can decorate main and side model streams for local diagnostics without changing the default stream path.
 - Embedded hosts can replace explicitly supplied skills at runtime while keeping automatic skill discovery disabled.
 

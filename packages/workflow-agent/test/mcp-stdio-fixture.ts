@@ -11,6 +11,7 @@ async function succeeds(action: () => Promise<unknown>): Promise<boolean> {
 	}
 }
 for await (const line of console) {
+	if (!line.trim()) continue;
 	const request = JSON.parse(line) as { id?: string; method: string };
 	if (request.id === undefined) continue;
 	let result: unknown = {};
@@ -22,7 +23,12 @@ for await (const line of console) {
 		};
 	if (request.method === "tools/list") result = { tools: [{ name: "probe", inputSchema: { type: "object" } }] };
 	if (request.method === "tools/call") {
-		const child = Bun.spawn(["/bin/sleep", "60"], { stdin: "ignore", stdout: "ignore", stderr: "ignore" });
+		const child = Bun.spawn(
+			process.platform === "win32"
+				? [process.execPath, "--no-env-file", "-e", "setInterval(()=>{},1000)"]
+				: ["/bin/sleep", "60"],
+			{ stdin: "ignore", stdout: "ignore", stderr: "ignore" },
+		);
 		const probe = {
 			pid: process.pid,
 			child: child.pid,
@@ -32,7 +38,10 @@ for await (const line of console) {
 			credentialRead: await succeeds(() => fs.readFile(path.join(process.cwd(), ".env"))),
 			outsideWrite: await succeeds(() => Bun.write(outside, "escape")),
 			workspaceWrite: await succeeds(() => Bun.write("mcp-result.txt", "stdio-workspace-ok")),
-			network: await succeeds(() => fetch(network, { signal: AbortSignal.timeout(500) })),
+			network: await succeeds(async () => {
+				const response = await fetch(network, { signal: AbortSignal.timeout(500) });
+				if (!response.ok) throw new Error(`Network refused: ${response.status}`);
+			}),
 		};
 		result = { content: [{ type: "text", text: JSON.stringify(probe) }], structuredContent: probe };
 	}

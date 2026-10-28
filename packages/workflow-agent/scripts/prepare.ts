@@ -1,12 +1,11 @@
 #!/usr/bin/env bun
 import { $ } from "bun";
 import * as path from "node:path";
-import { installNativeArchive, nativePackageName, nativeRelease } from "../src/distribution/native";
+import { installNativeArchive, nativeTarget, nativeRelease } from "../src/distribution/native";
 
 const root = path.resolve(import.meta.dir, "../../..");
 try {
-	if (process.platform !== "darwin" || process.arch !== "arm64")
-		throw new Error("当前源码准备流程只验证了 macOS arm64");
+	const target = nativeTarget();
 	if (!Bun.semver.satisfies(Bun.version, ">=1.3.14")) throw new Error("需要 Bun 1.3.14 或更新版本");
 	const natives = (await Bun.file(path.join(root, "packages/natives/package.json")).json()) as { version: string };
 	const agent = (await Bun.file(path.join(root, "packages/coding-agent/package.json")).json()) as { version: string };
@@ -19,7 +18,7 @@ try {
 	console.log("生成 OMP 工具视图……");
 	await $`${process.execPath} run gen:tool-views`.cwd(root);
 	console.log(`准备官方原生组件 ${natives.version}……`);
-	const response = await fetch(`https://registry.npmjs.org/${nativePackageName}/${natives.version}`, {
+	const response = await fetch(`https://registry.npmjs.org/${target.packageName}/${natives.version}`, {
 		redirect: "error",
 		signal: AbortSignal.timeout(60000),
 	});
@@ -35,6 +34,10 @@ try {
 		.cwd(root)
 		.env({ ...process.env, MY_AGENT_EXPECTED_NATIVE_VERSION: natives.version });
 	console.log("源码准备完成。运行 bun run agent doctor 检查环境，bun run agent --demo 离线试用。");
+	if (process.platform === "win32")
+		console.log(
+			"Windows 命令隔离还需一次系统安装：bun run agent:sandbox install；查询状态用 bun run agent:sandbox status。",
+		);
 } catch (error) {
 	process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
 	process.exitCode = 1;

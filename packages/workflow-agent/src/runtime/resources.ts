@@ -121,7 +121,13 @@ export async function loadResources(config: Config, cwd: string, light: boolean)
 		});
 	const systemPrompt = light
 		? lightPrompt
-		: prompt.render(systemTemplate, { instructions, systemAdditions, skills: skills.filter(skill => !skill.hide) });
+		: prompt.render(systemTemplate, {
+				instructions,
+				systemAdditions,
+				skills: skills.filter(skill => !skill.hide),
+				platform: process.platform,
+				shell: process.platform === "win32" ? "Windows PowerShell" : "bash",
+			});
 	return {
 		entries,
 		instructions,

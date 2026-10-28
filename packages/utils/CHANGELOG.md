@@ -4,6 +4,7 @@
 
 ### Fixed
 
+- Absolute config-root overrides work when Windows home and product data are on different drives.
 - Fetch failures preserve their original cause for downstream network diagnostics.
 
 

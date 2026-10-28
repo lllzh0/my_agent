@@ -7,7 +7,7 @@ import type { Approver } from "../policy/policy";
 import { resourcesFromCommand } from "./resources";
 import { traceFromCommand } from "./trace";
 import { resourceDisabled } from "../runtime/resources";
-import { atomicJson, redact } from "../storage";
+import { atomicJson } from "../storage";
 import { mcpMenu } from "./mcp-menu";
 import {
 	handleProductCommand,
@@ -18,6 +18,9 @@ import {
 } from "./commands";
 import { selectPermissions, updateProductStatus } from "./permissions";
 import { parseProductSkill } from "./skill-input";
+import { chooseApproval } from "./operation-preview";
+import { InkDocument } from "./ink-document";
+import { sanitizeText } from "@oh-my-pi/pi-utils";
 
 export function productExtension(
 	state: RunState,
@@ -36,13 +39,32 @@ export function productExtension(
 					(async request => {
 						const ctx = approvalContext;
 						if (!ctx.hasUI) return "deny";
-						const choice = await ctx.ui.select(
-							replaceTabs(
-								`批准 ${request.tool}\n${String(redact(request.target))}\n${JSON.stringify(redact(request.parameters ?? {}))}${request.review ? `\n${request.review.reason}` : ""}`,
-							),
-							["仅本次允许", "允许本会话完全相同的请求", "拒绝"],
+						return chooseApproval(
+							request,
+							(title, choices) => ctx.ui.select(replaceTabs(sanitizeText(title)), choices),
+							async body => {
+								await ctx.ui.custom<void>(
+									(tui, _theme, _keys, done) =>
+										new InkDocument(
+											"修改预览 · 返回后仍需批准",
+											body,
+											() => Math.max(5, tui.terminal.rows - 2),
+											() => done(),
+										),
+									{
+										overlay: true,
+										overlayOptions: {
+											fullscreen: true,
+											width: "100%",
+											maxHeight: "100%",
+											margin: 1,
+											mouseTracking: false,
+										},
+										signal: ctx.signal,
+									},
+								);
+							},
 						);
-						return choice === "仅本次允许" ? "once" : choice === "允许本会话完全相同的请求" ? "session" : "deny";
 					}),
 			);
 			updateProductStatus(state, ctx);

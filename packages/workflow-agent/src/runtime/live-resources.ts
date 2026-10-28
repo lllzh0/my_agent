@@ -112,6 +112,10 @@ export class LiveResources {
 	}
 	/** Reserve the same idle gate before import staging and hold it through cleanup. */
 	withTransaction<T>(work: (apply: (next: Config, signal?: AbortSignal) => Promise<void>) => Promise<T>): Promise<T> {
+		if (this.#state.preset)
+			throw new Error(
+				`预设 ${this.#state.preset.id} 使用启动时冻结的清单；请编辑 preset.json 并重新启动。旧入口仍支持资源热开关。`,
+			);
 		this.assertSubmissionAllowed();
 		this.#assertIdle();
 		// Start work after publishing the reservation, including synchronous callers.

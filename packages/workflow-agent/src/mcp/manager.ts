@@ -1,5 +1,5 @@
 import * as path from "node:path";
-import { quote } from "shell-quote";
+import { quoteCommand } from "../processes/shell";
 import { callTool, connectToServer, disconnectServer, listTools } from "@oh-my-pi/pi-coding-agent/mcp/client";
 import type { MCPServerConnection, MCPToolDefinition, MCPToolCallResult } from "@oh-my-pi/pi-coding-agent/mcp/types";
 import { untilAborted } from "@oh-my-pi/pi-utils";
@@ -161,15 +161,25 @@ export class ManagedMcp {
 				HOME: path.join(this.stateDir, "scratch"),
 				...expandMcpValues(config.env, this.#secrets),
 			};
-			const wrapped = await this.sandbox.wrap(quote([config.command, ...(config.args ?? [])]), signal);
-			signal.throwIfAborted();
-			prepared = {
-				...config,
-				command: "/bin/bash",
-				args: ["--noprofile", "--norc", "-c", wrapped],
-				cwd: this.cwd,
-				env,
-			};
+			if (process.platform === "win32" && this.policy.approvalMode === "full") {
+				// Let the SDK resolve native argv and .cmd shims once. A shell
+				// intermediary must not consume the server's protocol stdin.
+				prepared = { ...config, cwd: this.cwd, env };
+			} else {
+				const preparedCommand = await this.sandbox.prepare(
+					quoteCommand([config.command, ...(config.args ?? [])]),
+					signal,
+					{ env },
+				);
+				signal.throwIfAborted();
+				prepared = {
+					...config,
+					command: preparedCommand.argv[0]!,
+					args: preparedCommand.argv.slice(1),
+					cwd: this.cwd,
+					env: { ...env, ...preparedCommand.env },
+				};
+			}
 		}
 		const deadline = AbortSignal.any([signal, AbortSignal.timeout(config.timeout!)]);
 		this.#checkPolicy(config);
@@ -178,7 +188,7 @@ export class ManagedMcp {
 			signal: deadline,
 			stdio: {
 				inheritEnv: false,
-				detached: true,
+				detached: process.platform !== "win32",
 				onStderr: text => {
 					entry.stderr = this.#sanitize((entry.stderr ?? "") + text).slice(-2000);
 				},
@@ -198,6 +208,10 @@ export class ManagedMcp {
 	}
 	#checkPolicy(config: ProductMcpConfig): void {
 		if (this.policy.mode === "plan") throw new Error("计划模式禁止 MCP 连接和调用");
+		if (process.platform === "win32" && config.type === "stdio" && this.policy.approvalMode !== "full")
+			throw new Error(
+				"Windows alpha 沙箱的标准输入转发尚不可用，本地 MCP 未启动；请使用 HTTP MCP。显式 full 模式可运行本地 MCP，但不提供隔离。",
+			);
 		if (config.type === "http" && !this.policy.settings.allowNetwork && this.policy.approvalMode !== "full")
 			throw new Error("联网已禁用，MCP 未连接");
 	}

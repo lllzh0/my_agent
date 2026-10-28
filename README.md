@@ -1,4 +1,4 @@
-> **本 fork 的 My Agent 入口**：换机器或继续开发先读 [HANDOFF.md](HANDOFF.md)。新 clone 运行 `bun run agent:prepare`，再运行 `bun run agent --demo`；当前准备流程只支持 macOS Apple Silicon、Bun 1.3.14+。使用说明见 [workflow-agent](packages/workflow-agent/README.md)。这是源码试用版，下面保留 OMP 上游说明，其全部功能不代表已在产品入口中开放。
+> **本 fork 的 My Agent 入口**：换机器或继续开发先读 [HANDOFF.md](HANDOFF.md)。新 clone 运行 `bun run agent:prepare`，再运行 `bun run agent --demo`；使用 Bun 1.3.14+。现有 macOS Apple Silicon 入口之外，新增 [原生 Windows 适配及 alpha 命令隔离](docs/workflow-agent-windows.md)。使用说明见 [workflow-agent](packages/workflow-agent/README.md)。这是源码试用版，下面保留 OMP 上游说明，其全部功能不代表已在产品入口中开放。
 
 <p align="center">
   <img src="https://github.com/can1357/oh-my-pi/blob/main/assets/hero.png?raw=true" alt="omp">

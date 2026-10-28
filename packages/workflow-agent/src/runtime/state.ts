@@ -13,6 +13,7 @@ import type { ProductReview } from "../review/runner";
 import type { ProductModels } from "../models/controller";
 import type { LiveResources } from "./live-resources";
 import type { ModelTraces } from "../diagnostics/model-trace";
+import type { PresetIdentity } from "../presets/presets";
 
 export interface RunState {
 	home: string;
@@ -20,6 +21,8 @@ export interface RunState {
 	stateDir: string;
 	sessionId: string;
 	light: boolean;
+	preset?: PresetIdentity;
+	sessionDirectory?: string;
 	config: Config;
 	resources: Resources;
 	policy: Policy;

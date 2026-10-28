@@ -8,6 +8,7 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { getProjectDir, readJsonl } from "@oh-my-pi/pi-utils";
+import { Process } from "@oh-my-pi/pi-natives";
 import type { Subprocess } from "bun";
 import { hostHasInheritableConsole } from "../../eval/py/spawn-options";
 import type {
@@ -526,7 +527,13 @@ export async function terminateStdioProcess(
 	detached: boolean,
 	platform: NodeJS.Platform = process.platform,
 	termGraceMs = TERM_GRACE_MS,
+	windowsProcess?: Process,
 ): Promise<void> {
+	if (platform === "win32" && windowsProcess) {
+		windowsProcess.killTree(9);
+		await waitForProcessExit(proc.exited, KILL_GRACE_MS);
+		return;
+	}
 	signalStdioProcess(proc, detached, "SIGTERM", platform);
 	const exitedOnTerm = await waitForProcessExit(proc.exited, termGraceMs);
 	// A non-detached transport has no process group beyond the leader itself:
@@ -575,6 +582,7 @@ export class StdioTransport implements MCPTransport {
 	 * actually spawned into its own session may target it.
 	 */
 	#detached = false;
+	#windowsProcess?: Process;
 	readonly #requestIds = new RequestIdAllocator();
 
 	onClose?: () => void;
@@ -637,6 +645,8 @@ export class StdioTransport implements MCPTransport {
 			windowsVerbatimArguments: spawnCommand.windowsVerbatimArguments,
 		});
 		this.#detached = detached;
+		this.#windowsProcess =
+			process.platform === "win32" ? (Process.fromPid(this.#process.pid) ?? undefined) : undefined;
 
 		this.#connected = true;
 
@@ -997,7 +1007,8 @@ export class StdioTransport implements MCPTransport {
 			// 2-3. Group-aware SIGTERM (when this transport actually spawned
 			// detached), bounded wait, then escalate to SIGKILL. See
 			// `terminateStdioProcess` for the exact signaling/escalation rules.
-			await terminateStdioProcess(proc, this.#detached);
+			await terminateStdioProcess(proc, this.#detached, process.platform, TERM_GRACE_MS, this.#windowsProcess);
+			this.#windowsProcess = undefined;
 		}
 
 		if (this.#readLoop) {

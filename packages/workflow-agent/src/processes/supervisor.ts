@@ -8,13 +8,17 @@ import { atomicJson, readJson, redact } from "../storage.ts";
 import { Policy } from "../policy/policy.ts";
 import { executionEnvironment } from "./environment";
 import { looksLikeGitWrite } from "../policy/risk";
+import { Process } from "@oh-my-pi/pi-natives";
+import { commandInvocation, type CommandInvocation } from "./shell";
 
 export interface ExecutionScope {
 	gitWrite?: boolean;
+	env?: Record<string, string>;
 }
 
 export interface ExecutionBackend {
 	wrap(command: string, signal?: AbortSignal, scope?: ExecutionScope): Promise<string>;
+	prepare?(command: string, signal?: AbortSignal, scope?: ExecutionScope): Promise<CommandInvocation>;
 	close(): Promise<void>;
 }
 export interface Job {
@@ -33,6 +37,7 @@ interface Running {
 	child: ChildProcess;
 	finished: Promise<void>;
 	finish: () => void;
+	windowsProcess?: Process;
 	timer?: NodeJS.Timeout;
 	drainTimer?: NodeJS.Timeout;
 }
@@ -70,6 +75,10 @@ export class Supervisor {
 		await atomicJson(join(this.home, "jobs.json"), this.#jobs);
 	}
 	#signalGroup(active: Running, signal: NodeJS.Signals): void {
+		if (process.platform === "win32") {
+			active.windowsProcess?.killTree(signal === "SIGKILL" ? 9 : 15);
+			return;
+		}
 		try {
 			if (active.child.pid) process.kill(-active.child.pid, signal);
 		} catch (error) {
@@ -124,22 +133,26 @@ export class Supervisor {
 		await mkdir(scratch, { recursive: true });
 		if (this.#closed) throw new Error("命令管理器已关闭");
 		const fullAccess = this.policy.approvalMode === "full";
-		const wrapped = fullAccess
-			? command
-			: await this.backend.wrap(command, startSignal, { gitWrite: options.gitWrite });
+		const env = executionEnvironment(this.home, this.envNames, fullAccess);
+		const scope = { gitWrite: options.gitWrite, env };
+		const prepared = fullAccess
+			? commandInvocation(command)
+			: this.backend.prepare
+				? await this.backend.prepare(command, startSignal, scope)
+				: commandInvocation(await this.backend.wrap(command, startSignal, scope));
 		if (this.#closed) {
 			// Preparation may have allocated backend resources after close() ran.
 			await this.backend.close();
 			throw new Error("命令管理器已关闭");
 		}
 		startSignal?.throwIfAborted();
-		const env = executionEnvironment(this.home, this.envNames, fullAccess);
 		this.policy.checkMode({ tool: "bash", kind: "execute", target: command });
 		this.policy.assertCurrent(revision);
-		const child = spawn("/bin/bash", ["--noprofile", "--norc", "-c", wrapped], {
+		const child = spawn(prepared.argv[0]!, prepared.argv.slice(1), {
 			cwd: this.cwd,
-			env,
-			detached: true,
+			env: { ...env, ...prepared.env },
+			detached: process.platform !== "win32",
+			windowsHide: true,
 			stdio: ["ignore", "pipe", "pipe"],
 		});
 		const job: Job = {
@@ -153,7 +166,13 @@ export class Supervisor {
 			dropped: 0,
 		};
 		const { promise: finished, resolve: finish } = Promise.withResolvers<void>();
-		const running: Running = { child, finished, finish };
+		const running: Running = {
+			child,
+			finished,
+			finish,
+			windowsProcess:
+				process.platform === "win32" && child.pid ? (Process.fromPid(child.pid) ?? undefined) : undefined,
+		};
 		this.#jobs.push(job);
 		this.#running.set(job.id, running);
 		const append = (bytes: Buffer) => {

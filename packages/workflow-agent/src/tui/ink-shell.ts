@@ -25,7 +25,7 @@ export class InkShell {
 		readonly state: RunState,
 	) {
 		this.#layout = new InkLayout(() => ({
-			workspace: path.basename(state.cwd),
+			workspace: `${path.basename(state.cwd)}${state.preset ? ` · ${state.preset.id}` : ""}`,
 			session: mode.sessionName ?? state.sessionId.slice(0, 8),
 			model: mode.session.model?.name ?? "模型未连接",
 			status: state.sessions?.busy

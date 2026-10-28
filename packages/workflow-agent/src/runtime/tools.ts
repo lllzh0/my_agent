@@ -19,6 +19,10 @@ import sourceReadDescription from "../prompts/tool-read-source.md" with { type: 
 import sourceSearchDescription from "../prompts/tool-search-source.md" with { type: "text" };
 import lsDescription from "../prompts/tool-ls.md" with { type: "text" };
 import { Search } from "../search/search";
+import { Text, replaceTabs } from "@oh-my-pi/pi-tui";
+import { sanitizeText } from "@oh-my-pi/pi-utils";
+import type { Job } from "../processes/supervisor";
+import { formatCommandResult } from "../tui/operation-preview";
 
 export const result = (value: unknown) => ({
 	content: [{ type: "text" as const, text: typeof value === "string" ? value : JSON.stringify(value, null, 2) }],
@@ -170,7 +174,11 @@ export function productTools(state: RunState, context: ToolSession): ToolDefinit
 					tool: "write",
 					kind: "write",
 					target: path,
-					parameters: { contentHash: digest(input.content), preview: input.content.slice(0, 2000) },
+					parameters: {
+						contentHash: digest(input.content),
+						preview: input.content.slice(0, 2000),
+						previewTruncated: input.content.length > 2000,
+					},
 				},
 				signal,
 			);
@@ -199,6 +207,7 @@ export function productTools(state: RunState, context: ToolSession): ToolDefinit
 						before: input.old_string.slice(0, 1000),
 						after: input.new_string.slice(0, 1000),
 						replaceAll: input.replace_all === true,
+						previewTruncated: input.old_string.length > 1000 || input.new_string.length > 1000,
 					},
 				},
 				signal,
@@ -224,7 +233,18 @@ export function productTools(state: RunState, context: ToolSession): ToolDefinit
 				startSignal: signal,
 				gitWrite: input.gitWrite,
 			});
-			return result(input.background ? job : await state.jobs.wait(job.id));
+			const completed = input.background ? job : await state.jobs.wait(job.id);
+			return { ...result(completed), details: { job: completed } };
+		},
+		renderResult(output, options) {
+			const job = (output.details as { job?: Job } | undefined)?.job;
+			const text = job
+				? formatCommandResult(job, options.expanded)
+				: output.content
+						.filter(item => item.type === "text")
+						.map(item => item.text)
+						.join("\n");
+			return new Text(replaceTabs(sanitizeText(text)), 0, 0);
 		},
 	});
 	const searchFields = {
@@ -389,7 +409,11 @@ export function productTools(state: RunState, context: ToolSession): ToolDefinit
 					tool: "write_report",
 					kind: "write",
 					target: path,
-					parameters: { contentHash: digest(content), preview: content.slice(0, 2000) },
+					parameters: {
+						contentHash: digest(content),
+						preview: content.slice(0, 2000),
+						previewTruncated: content.length > 2000,
+					},
 				},
 				signal,
 			);

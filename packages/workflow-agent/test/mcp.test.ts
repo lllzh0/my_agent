@@ -6,6 +6,7 @@ import { fixture } from "./helpers";
 import { Policy } from "../src/policy/policy";
 import { Sandbox } from "../src/processes/sandbox";
 import { ManagedMcp } from "../src/mcp/manager";
+import { commandInvocation } from "../src/processes/shell";
 
 export function remoteMcp(deleteDelay = 0) {
 	const requests: { method: string; params?: { name?: string; arguments?: unknown }; authorization: string | null }[] =
@@ -81,48 +82,53 @@ export function remoteMcp(deleteDelay = 0) {
 	};
 }
 
-test("MCP permission revision changes during preparation prevent a local process from starting", async () => {
-	const root = await fs.mkdtemp(path.join(os.tmpdir(), "mcp-permission-prepare-"));
-	const policy = new Policy(root, { readRoots: [], writeRoots: [], allowNetwork: true });
-	policy.setApprovalMode("full");
-	const sandbox = new Sandbox(root, root, []);
-	sandbox.fullAccess = true;
-	const preparing = Promise.withResolvers<void>();
-	const release = Promise.withResolvers<void>();
-	const wrapped = spyOn(sandbox, "wrap").mockImplementation(async command => {
-		preparing.resolve();
-		await release.promise;
-		return command;
-	});
-	const marker = path.join(root, "not-started.txt");
-	const mcp = new ManagedMcp(
-		{ fixture: { command: "/usr/bin/touch", args: [marker] } },
-		policy,
-		sandbox,
-		root,
-		root,
-		false,
-	);
-	const pending = mcp.list("fixture").then(
-		() => undefined,
-		error => String(error),
-	);
-	try {
-		await preparing.promise;
-		policy.setApprovalMode("manual");
-		sandbox.fullAccess = false;
-		release.resolve();
-		const outcome = await pending;
-		expect(await Bun.file(marker).exists()).toBe(false);
-		expect(outcome).toMatch(/授权状态.*变更/);
-	} finally {
-		release.resolve();
-		await pending;
-		await mcp.close();
-		wrapped.mockRestore();
-		await fs.rm(root, { recursive: true, force: true });
-	}
-});
+// Windows isolated stdio is gated before preparation; explicit full starts
+// native argv directly. The Windows gate and full path have separate tests.
+test.skipIf(process.platform === "win32")(
+	"MCP permission revision changes during preparation prevent a local process from starting",
+	async () => {
+		const root = await fs.mkdtemp(path.join(os.tmpdir(), "mcp-permission-prepare-"));
+		const policy = new Policy(root, { readRoots: [], writeRoots: [], allowNetwork: true });
+		policy.setApprovalMode("full");
+		const sandbox = new Sandbox(root, root, []);
+		sandbox.fullAccess = true;
+		const preparing = Promise.withResolvers<void>();
+		const release = Promise.withResolvers<void>();
+		const wrapped = spyOn(sandbox, "prepare").mockImplementation(async command => {
+			preparing.resolve();
+			await release.promise;
+			return commandInvocation(command);
+		});
+		const marker = path.join(root, "not-started.txt");
+		const mcp = new ManagedMcp(
+			{ fixture: { command: "/usr/bin/touch", args: [marker] } },
+			policy,
+			sandbox,
+			root,
+			root,
+			false,
+		);
+		const pending = mcp.list("fixture").then(
+			() => undefined,
+			error => String(error),
+		);
+		try {
+			await preparing.promise;
+			policy.setApprovalMode("manual");
+			sandbox.fullAccess = false;
+			release.resolve();
+			const outcome = await pending;
+			expect(await Bun.file(marker).exists()).toBe(false);
+			expect(outcome).toMatch(/授权状态.*变更/);
+		} finally {
+			release.resolve();
+			await pending;
+			await mcp.close();
+			wrapped.mockRestore();
+			await fs.rm(root, { recursive: true, force: true });
+		}
+	},
+);
 
 test("MCP permission revision changes after call approval prevent external execution", async () => {
 	const root = await fs.mkdtemp(path.join(os.tmpdir(), "mcp-permission-call-"));

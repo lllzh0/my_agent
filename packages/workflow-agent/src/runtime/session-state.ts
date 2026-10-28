@@ -27,8 +27,11 @@ export function sessionStateDirectory(home: string, sessionId: string): string {
 }
 
 export async function closeSessionRuntime(runtime: SessionRuntime): Promise<void> {
+	const mcpClosed = runtime.mcp.close();
+	// Windows ACLs belong to the sandbox session: release them after stdio exits.
+	if (process.platform === "win32") await mcpClosed.catch(() => undefined);
 	const results = await Promise.allSettled([
-		runtime.mcp.close(),
+		mcpClosed,
 		runtime.jobs.close(),
 		runtime.diagnostics.flush(),
 		runtime.journal.close(),

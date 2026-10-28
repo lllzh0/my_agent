@@ -2,14 +2,17 @@
 import * as os from "node:os";
 import * as path from "node:path";
 import { parseArgs } from "node:util";
+import { presetId, readPreset } from "./presets/presets";
+import { presetCommand } from "./presets/cli";
+import { CLI_OPTIONS } from "./cli-options";
 
 // The SDK caches directories during module initialization. Keep this process
 // free of SDK imports and give the session child its owned paths up front.
 try {
-	const { values } = parseArgs({
+	const { values, positionals } = parseArgs({
 		strict: false,
 		allowPositionals: true,
-		options: { home: { type: "string" }, cwd: { type: "string" } },
+		options: { ...CLI_OPTIONS, template: { type: "string" } },
 	});
 	const cwd = path.resolve(typeof values.cwd === "string" ? values.cwd : (process.env.MY_AGENT_CWD ?? process.cwd()));
 	const home = path.resolve(
@@ -17,6 +20,22 @@ try {
 			? values.home
 			: (process.env.MY_AGENT_HOME ?? path.join(os.homedir(), ".my-agent-omp")),
 	);
+	if (positionals[0] === "preset") {
+		if (values.preset || values.light) throw new Error("预设管理命令不与 --preset 或 --light 混用");
+		process.stdout.write(
+			`${JSON.stringify(await presetCommand(home, cwd, positionals.slice(1), typeof values.template === "string" ? values.template : undefined), null, 2)}\n`,
+		);
+		process.exit(0);
+	}
+	const selectedPreset = typeof values.preset === "string" ? presetId(values.preset) : undefined;
+	if (selectedPreset && values.light) throw new Error("--preset 与 --light 不能同时使用");
+	if (selectedPreset && selectedPreset !== "legacy" && ["setup", "restore-config"].includes(positionals[0]))
+		throw new Error("共享配置管理请在不带 --preset 的入口执行。");
+	if (selectedPreset && selectedPreset !== "legacy") await readPreset(home, selectedPreset);
+	const configRoot =
+		selectedPreset && selectedPreset !== "legacy"
+			? path.join(home, "omp", "presets", selectedPreset)
+			: path.join(home, "omp");
 	const child = Bun.spawn([process.execPath, path.join(import.meta.dir, "cli.ts"), ...process.argv.slice(2)], {
 		cwd,
 		stdin: "inherit",
@@ -26,9 +45,9 @@ try {
 			...process.env,
 			MY_AGENT_HOME: home,
 			MY_AGENT_CWD: cwd,
-			PI_CONFIG_DIR: path.relative(os.homedir(), path.join(home, "omp")),
+			PI_CONFIG_DIR: path.relative(os.homedir(), configRoot),
 			PI_CONFIG_FILES: "",
-			PI_CODING_AGENT_DIR: path.join(home, "omp/agent"),
+			PI_CODING_AGENT_DIR: path.join(configRoot, "agent"),
 			PI_NATIVES_DIR: path.join(home, "natives"),
 			OMP_PROFILE: "",
 			PI_PROFILE: "",

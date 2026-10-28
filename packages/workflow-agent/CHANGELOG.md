@@ -4,6 +4,11 @@
 
 ### Added
 
+- 新增原生 Windows 组件准备、PowerShell 命令、本地 MCP 和进程树取消，Windows alpha 沙箱可通过 `agent:sandbox install/status` 单独安装与检查。
+- 真实 Windows 隔离验收后修复 ACL 范围与启动器环境，保护 `env.local`；本机隔离 stdin 尚不可用，普通权限在启动前拒绝本地 MCP，保留 HTTP MCP 与显式 full 路径。
+- 支持 `--preset`、`preset list/create/show/check` 和 `/preset show`，按清单选择资源并隔离会话；命名预设首批在启动时冻结，切换需重启。
+- 编辑审批支持片段差异和只读滚动详情；命令结果显示退出码、短输出及展开内容。
+
 - 默认启用墨线终端布局，提供自动收起侧栏、底部输入、Ctrl+P 搜索操作、F2 会话、F3 资源和只读差异/来源面板；可用 `--ui classic` 回退。
 - 同一进程内切换会话保留各自的未发送草稿与附件，取消菜单后回到原输入。
 

@@ -3,7 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { parseArgs } from "node:util";
 import { createInterface } from "node:readline/promises";
-import { SandboxManager } from "@anthropic-ai/sandbox-runtime";
+import { sandboxCapabilities } from "./processes/sandbox-status";
 import { InteractiveMode } from "@oh-my-pi/pi-coding-agent/modes/interactive-mode";
 import { loadConfig, saveConfig, recoverConfig } from "./config/config";
 import { openHost } from "./runtime/host";
@@ -19,28 +19,17 @@ import { SessionDrafts } from "./tui/session-drafts";
 import { diagnosticReport, saveDiagnosticReport } from "./diagnostics/report";
 import { classifyError, ModelRequestError } from "./diagnostics/errors";
 import type { ApprovalMode } from "./policy/policy";
+import { resolvePreset } from "./presets/presets";
+import { CLI_OPTIONS } from "./cli-options";
 
 async function run(): Promise<void> {
 	const { values, positionals } = parseArgs({
 		allowPositionals: true,
-		options: {
-			help: { type: "boolean", short: "h" },
-			demo: { type: "boolean" },
-			light: { type: "boolean" },
-			print: { type: "boolean", short: "p" },
-			defaults: { type: "boolean" },
-			home: { type: "string" },
-			cwd: { type: "string" },
-			prompt: { type: "string" },
-			resume: { type: "string" },
-			output: { type: "string" },
-			permissions: { type: "string" },
-			ui: { type: "string" },
-		},
+		options: CLI_OPTIONS,
 	});
 	if (values.help) {
 		process.stdout.write(
-			"My Agent 0.2.0 · OMP\n编程与资料研究\n\n用法：bun run agent [setup|doctor|diagnose|restore-config] [选项]\n  setup --defaults       保存默认模型与搜索配置，不发送请求\n  doctor                 检查配置和运行依赖，不发送请求\n  diagnose               预览脱敏诊断 JSON，不发送请求\n  diagnose --output 文件 保存诊断到新文件，不覆盖已有文件\n  --demo                 本地模拟回答，不调用真实服务\n  --light                不加载工作流资源和工具\n  --ui ink|classic       墨线界面（默认）或经典界面\n  --print --prompt 文本  输出一次回答；副作用默认拒绝\n  --home 路径            独立配置和会话目录\n  --cwd 路径             工作目录\n  --resume 会话文件      恢复当前配置目录内的 OMP 产品会话\n  --permissions 模式     manual 手动、auto 自动、full 完整授权；仅本次启动\n\n终端主菜单 /agent；计划模式 /agent-plan。配置修改在重启后生效。\n模型凭据：OPENCODE_API_KEY；搜索凭据：TAVILY_API_KEY。\n",
+			"My Agent 0.2.0 · OMP\n编程与资料研究\n\n用法：bun run agent [setup|doctor|diagnose|restore-config] [选项]\n  setup --defaults       保存默认模型与搜索配置，不发送请求\n  doctor                 检查配置和运行依赖，不发送请求\n  diagnose               预览脱敏诊断 JSON，不发送请求\n  diagnose --output 文件 保存诊断到新文件，不覆盖已有文件\n  --demo                 本地模拟回答，不调用真实服务\n  --preset ID            按命名清单启动独立预设\n  preset list/create/show/check  管理清单（create 支持 --template）\n  --light                不加载工作流资源和工具\n  --ui ink|classic       墨线界面（默认）或经典界面\n  --print --prompt 文本  输出一次回答；副作用默认拒绝\n  --home 路径            独立配置和会话目录\n  --cwd 路径             工作目录\n  --resume 会话文件      恢复当前配置目录内的 OMP 产品会话\n  --permissions 模式     manual 手动、auto 自动、full 完整授权；仅本次启动\n\n终端主菜单 /agent；计划模式 /agent-plan。配置修改在重启后生效。\n模型凭据：OPENCODE_API_KEY；搜索凭据：TAVILY_API_KEY。\n",
 		);
 		return;
 	}
@@ -52,6 +41,8 @@ async function run(): Promise<void> {
 	const permissions = selectedPermissions as ApprovalMode | undefined;
 	const home = path.resolve(process.env.MY_AGENT_HOME ?? values.home ?? path.join(os.homedir(), ".my-agent-omp"));
 	const cwd = path.resolve(process.env.MY_AGENT_CWD ?? values.cwd ?? process.cwd());
+	if (values.preset && values.preset !== "legacy" && ["setup", "restore-config"].includes(positionals[0]))
+		throw new Error("共享配置管理请在不带 --preset 的入口执行。");
 	if (values.output && positionals[0] !== "diagnose") throw new Error("--output 仅用于 diagnose 命令");
 	if (positionals[0] === "diagnose") {
 		const report = await diagnosticReport(home, cwd);
@@ -66,7 +57,13 @@ async function run(): Promise<void> {
 		process.stdout.write("已恢复最近有效配置，损坏原件已保留。\n");
 		return;
 	}
-	const config = await loadConfig(home);
+	if (values.preset && values.light) throw new Error("--preset 与 --light 不能同时使用");
+	const baseConfig = await loadConfig(home);
+	const selectedPreset =
+		values.preset && values.preset !== "legacy"
+			? await resolvePreset(home, cwd, values.preset, baseConfig)
+			: undefined;
+	const config = selectedPreset?.config ?? baseConfig;
 	if (positionals[0] === "setup") {
 		if (!values.defaults) {
 			if (!process.stdin.isTTY) throw new Error("非交互配置请使用 setup --defaults");
@@ -97,10 +94,7 @@ async function run(): Promise<void> {
 					cwd,
 					model: { ...config.model, credentialAvailable: !!process.env[config.model.apiKeyEnv] },
 					search: { provider: "tavily", credentialAvailable: !!process.env[config.search.apiKeyEnv] },
-					sandbox: {
-						platformSupported: process.platform === "darwin",
-						dependencies: SandboxManager.checkDependencies(),
-					},
+					sandbox: await sandboxCapabilities(),
 					unsupported: {
 						enabledExtensions: config.resources.extensions.filter(extension => extension.enabled).length,
 						authFile: !!config.model.authPath,
@@ -138,6 +132,7 @@ async function run(): Promise<void> {
 		resume: values.resume,
 		interactive: !values.print,
 		permissions,
+		preset: values.preset,
 	});
 	// CLI prompts enter the SDK directly rather than passing the TUI input hook.
 	if (values.prompt) host.state.policy.setUserTask(values.prompt);
@@ -210,6 +205,7 @@ async function run(): Promise<void> {
 										host.session.sessionFile,
 										values.demo === true,
 										values.light === true,
+										host.state.preset?.id,
 									)
 								: false,
 					});

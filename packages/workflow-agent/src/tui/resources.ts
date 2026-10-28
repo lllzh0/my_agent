@@ -43,19 +43,24 @@ export async function resourcesFromCommand(state: RunState, ctx: ExtensionContex
 	if (args) throw new Error("用法：/resources [list|on <ID>|off <ID>|reload]");
 	if (!ctx.hasUI) throw new Error("非交互模式请使用 /resources list、on、off 或 reload。");
 	while (true) {
-		const choice = await ctx.ui.select("资源开关 · 空闲时立即生效并保存", [
-			"查看当前状态",
-			"工具",
-			"技能",
-			"指令文件",
-			"附加提示词",
-			"添加指令文件",
-			"添加技能文件或目录",
-			"导入外部技能",
-			"添加附加提示词",
-			"重新读取所选资源",
-			"返回",
-		]);
+		const choice = await ctx.ui.select(
+			state.preset ? `预设 ${state.preset.id} · 启动时冻结清单` : "资源开关 · 空闲时立即生效并保存",
+			state.preset
+				? ["查看当前状态", "返回"]
+				: [
+						"查看当前状态",
+						"工具",
+						"技能",
+						"指令文件",
+						"附加提示词",
+						"添加指令文件",
+						"添加技能文件或目录",
+						"导入外部技能",
+						"添加附加提示词",
+						"重新读取所选资源",
+						"返回",
+					],
+		);
 		ctx.signal?.throwIfAborted();
 		if (!choice || choice === "返回") return;
 		if (choice === "导入外部技能") await skillImportFromMenu(state, ctx);

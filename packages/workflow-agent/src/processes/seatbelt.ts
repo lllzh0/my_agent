@@ -30,7 +30,7 @@ export function protectMacOSCommand(
 	)
 		.map(root => `(require-not (subpath ${JSON.stringify(root)}))`)
 		.join(" ")})`;
-	const secrets = String.raw`(^|/)(\.ssh|\.aws|\.gnupg|\.env(\.[^/]+)?|auth\.json|mcp-auth\.json|id_rsa|id_ed25519|[^/]+\.(pem|key))(/|$)`;
+	const secrets = String.raw`(^|/)(\.ssh|\.aws|\.gnupg|\.env(\.[^/]+)?|env\.local|auth\.json|mcp-auth\.json|id_rsa|id_ed25519|[^/]+\.(pem|key))(/|$)`;
 	const executionConfig = gitWrite
 		? String.raw`(^|/)(\.agents|\.codex|\.pi|\.omp)(/|$)`
 		: String.raw`(^|/)(\.git|\.agents|\.codex|\.pi|\.omp)(/|$)`;

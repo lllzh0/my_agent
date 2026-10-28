@@ -14,6 +14,18 @@ async function fixture() {
 	return { root, workspace, policy: new Policy(workspace, { readRoots: [], writeRoots: [], allowNetwork: false }) };
 }
 
+test("env.local remains protected from direct file tools", async () => {
+	const f = await fixture();
+	try {
+		await Bun.write(path.join(f.workspace, "env.local"), "SYNTHETIC_CREDENTIAL");
+		for (const kind of ["read", "write"] as const)
+			await expect(f.policy.resolvePath("env.local", kind)).rejects.toThrow(/凭据/);
+		expect(await Bun.file(path.join(f.workspace, "env.local")).text()).toBe("SYNTHETIC_CREDENTIAL");
+	} finally {
+		await fs.rm(f.root, { recursive: true, force: true });
+	}
+});
+
 test("managed skill read access does not expose application state, allow writes, or follow escaping links", async () => {
 	const f = await fixture();
 	try {

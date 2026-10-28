@@ -7,6 +7,8 @@ import * as fs from "node:fs/promises";
 const { mkdir, realpath } = fs;
 import type { ExecutionBackend, ExecutionScope } from "./supervisor.ts";
 import { protectMacOSCommand } from "./seatbelt";
+import { WindowsSandbox } from "./windows-sandbox";
+import { commandInvocation, type CommandInvocation } from "./shell";
 
 export class Sandbox implements ExecutionBackend {
 	readonly workspace: string;
@@ -20,9 +22,12 @@ export class Sandbox implements ExecutionBackend {
 	#ready = false;
 	#status = "尚未初始化";
 	get status(): string {
-		return this.fullAccess ? "已关闭（完整授权）" : this.#status;
+		return this.fullAccess
+			? "已关闭（完整授权）"
+			: `${process.platform === "win32" ? "Windows alpha · " : ""}${this.#status}`;
 	}
 	#scratch = "";
+	#windows?: WindowsSandbox;
 	constructor(
 		workspace: string,
 		home: string,
@@ -40,8 +45,30 @@ export class Sandbox implements ExecutionBackend {
 		this.writeRoots = writeRoots;
 		this.managedSkillReadRoots = managedSkillReadRoots;
 	}
+	async prepare(command: string, signal?: AbortSignal, scope: ExecutionScope = {}): Promise<CommandInvocation> {
+		if (process.platform !== "win32") return commandInvocation(await this.wrap(command, signal, scope));
+		if (this.fullAccess) return commandInvocation(command);
+		this.#windows ??= new WindowsSandbox(
+			this.workspace,
+			this.home,
+			this.protectedHome,
+			this.allowedDomains,
+			this.readRoots,
+			this.writeRoots,
+			this.managedSkillReadRoots,
+		);
+		try {
+			const prepared = await this.#windows.prepare(command, signal, scope);
+			this.#status = "已启用（Windows alpha）";
+			return prepared;
+		} catch (error) {
+			this.#status = "不可用（Windows）";
+			throw error;
+		}
+	}
 	async wrap(command: string, signal?: AbortSignal, scope: ExecutionScope = {}): Promise<string> {
 		if (this.fullAccess) return command;
+		if (process.platform === "win32") throw new Error("Windows 沙箱须通过 argv 启动，不能使用 POSIX 包装字符串。");
 		if (!this.#ready) {
 			if (process.platform !== "darwin") throw new Error("首版命令隔离仅支持 macOS；命令没有执行");
 			const dependencies = SandboxManager.checkDependencies();
@@ -65,6 +92,7 @@ export class Sandbox implements ExecutionBackend {
 								join(homedir(), ".gnupg"),
 								"**/.env",
 								"**/.env.*",
+								"**/env.local",
 								"**/*.pem",
 								"**/*.key",
 							],
@@ -84,6 +112,7 @@ export class Sandbox implements ExecutionBackend {
 								join(workspace, ".codex"),
 								"**/.env",
 								"**/.env.*",
+								"**/env.local",
 								"**/*.pem",
 								"**/*.key",
 							],
@@ -133,6 +162,7 @@ export class Sandbox implements ExecutionBackend {
 		);
 	}
 	async close(): Promise<void> {
+		await this.#windows?.close();
 		if (this.#ready) {
 			await SandboxManager.reset();
 			this.#ready = false;

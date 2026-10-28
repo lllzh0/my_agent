@@ -1,5 +1,9 @@
 # My Agent 开发交接
 
+Windows 优先批次（2026-10-28）：已接入 Windows 原生包、PowerShell、进程树取消、路径限制和 0.0.81 Windows alpha 沙箱，macOS 保留原依赖。用户确认后已安装本机账户/WFP，真实命令隔离通过 26 次断言；使用用户提供的密钥完成 OpenCode Go / DeepSeek V4.1 Flash 的 `max` 思考、沙箱命令及自然回复链路，第二轮模型延迟约 272 秒。产品 tsgo、x64 组件、CLI/恢复及真实 ConPTY 离线交互已通过。本机隔离 stdin 探针为空，因此普通权限启动前拒绝本地 MCP；显式 full 的真实协议及后代清理通过，HTTP MCP 保留。旧宿主集成超时和全新环境准备未闭合。Windows alpha 本机已观察到匿名令牌 loopback 残余。完整证据见 [Windows 验证](docs/verification/windows-2026-10-28.md)，安装与限制见 [Windows 使用说明](docs/workflow-agent-windows.md)。批次 1/3 改动保留，均未提交、未推送。下方 macOS 独占准备说明为旧基线。
+
+最新开发批次（2026-10-28，批次 1 / 3）：已在 main 工作树接入审批片段差异、只读详情和命令结果摘要，以及命名预设启动最小版。`preset list/create/show/check` 管理清单，`--preset <ID>` 使用独立 SDK 与会话目录，`/preset show` 显示实际状态；模型和 MCP 引用共享配置，不复制凭据。命名预设首批冻结资源，修改清单后重启；原入口保留资源热开关。运行中切换、默认绑定和完整编辑器未做，main 仍为单 agent，未提交、未推送。用法见 [工作流预设](docs/workflow-agent-presets.md)。本机 Windows 的定向验证及依赖安装限制见 [本批验证](docs/verification/batches-1-3-2026-10-28.md)；这不是 Windows 运行时支持或真实 macOS 终端验收。下方历史“预设未开始”等描述以本节为准。
+
 最新验收批次（2026-10-28）：菜单停止修复已先提交为 `ab1cea0147`。随后使用真实墨线 TUI、用户已配置模型和独立临时目录，对 GitHub `escape-string-regexp` 的历史 issue #20 / PR #21 做小型代码任务。模型完成两文件修复，项目 4 项测试、代码和类型检查通过，独立行为检查从 30 通过 / 8 失败变为 38 通过 / 0 失败。首轮方案遗漏字符集合边界，补充验收条件后才完成，不称为一次无提示通过。Issue #41 的加号只读核验也已完成，未复现且源码指纹不变。环境兼容、外层沙箱和额度中断均单列保留；详细流程、证据及边界见 [真实代码验收](docs/workflow-agent-real-code-acceptance.md)。本批仅补充文档；测试没有改变产品代码，也不代表第一阶段整体验收。GUI 已在聊天中比较布局，尚未接入产品。
 
 最新开发批次（2026-10-27）：已在单 agent main 接入墨线 TUI、会话草稿保持、审批自动退让及 F3 分组资源状态页。用户确认资源页改动生效，并明确要求先提交当前成果，再处理“中断后换任务、继续、排队恢复和 retry”的可靠性。范围、自动与真实终端/服务证据见 [墨线验证记录](docs/workflow-agent-ink-tui-verification.md)。没有推送；不把资源页确认扩展为第一阶段整体验收。
@@ -46,7 +50,7 @@
 
 ## 2. 新机器开始开发
 
-已验证且准备脚本接受的平台：**macOS Apple Silicon（arm64）**，Bun **1.3.14 或更高**，需要 Git。当前命令沙箱只实现 macOS；Intel Mac、Linux、Windows 需要先做平台适配，不能通过关闭沙箱跳过。
+原有验收平台为 **macOS Apple Silicon（arm64）**，Bun **1.3.14 或更高**，需要 Git。新增 Windows x64/arm64 准备入口及原生 alpha 沙箱，实际验证状态以文首 [Windows 记录](docs/verification/windows-2026-10-28.md) 为准；Intel Mac 和 Linux 尚未适配。隔离不可用时不通过自动关闭沙箱跳过。
 
 ```sh
 git clone --branch main https://github.com/lllzh0/my_agent.git

@@ -2,7 +2,9 @@
 
 面向编程与资料研究的产品入口，使用当前 fork 内的 OMP SDK 和终端界面。当前版本是 **0.2.0、本地源码试用版**。它已迁入显式资源、受控工具、研究来源、后台任务、直接文本恢复和 MCP 外部工具接入；完整工作流预设切换与 GUI 尚未实现。
 
-本地 `main` 保持单 agent；本次同步已完成的基础功能，多角色协作保留在 `codex/team-efficiency`。本地同步尚未发布；新一批第一阶段功能仍待实现。
+本地 `main` 保持单 agent；多角色协作保留在独立分支，当前源码未发布。
+
+2026-10-28 增量：编辑审批可查看片段差异和只读滚动详情，返回后仍须批准；命令结果显示退出码和短输出，Ctrl+O 展开更多。新增启动预设最小版：`bun run agent preset create work --template coding` 创建清单，`preset check work` 检查引用，`--preset work` 启动；内置 `chat` 和 `bare`。命名预设使用独立会话和 SDK 目录，首批资源清单在启动时冻结；`/preset show` 查看实际状态。运行中跨预设切换、默认绑定和完整编辑器仍未实现。用法及边界见 [工作流预设](../../docs/workflow-agent-presets.md)，本批验证见 [验证记录](../../docs/verification/batches-1-3-2026-10-28.md)。
 
 第一阶段面向有一定编程基础的 TUI 使用者，允许编辑配置、设置环境变量。已接入 OMP 原生会话选择器，可在启动后用 `/resume` 恢复当前工作区旧会话；不要求完整配置向导。最新验收范围见 [TUI 范围修订](../../docs/workflow-agent-phase1-scope.md)。
 
@@ -14,7 +16,9 @@
 
 ## 在当前工作区启动
 
-已验证环境：Bun 1.3.14、macOS arm64、OMP 18.10.3。当前 checkout 的依赖、官方同版本原生组件和生成文件已经准备好：
+新增原生 Windows 准备与 PowerShell 命令适配，Windows 隔离为上游 alpha 后端，需要人主动进行一次系统账户/WFP 安装；不会因未安装而降级执行。本机真实命令隔离与 OpenCode Go / DeepSeek V4.1 Flash `max` 最小调用链已通过。本地 stdio MCP 的隔离 stdin 尚不可用，普通权限启动前拒绝；HTTP MCP 和显式 full 路径保留。先阅读 [Windows 使用说明与验证边界](../../docs/workflow-agent-windows.md)。下述 macOS 环境是此前验收基线。
+
+此前完整验收环境：Bun 1.3.14、macOS arm64、OMP 18.10.3。完成对应平台的源码准备后运行：
 
 ```sh
 cd my_agent
@@ -25,9 +29,9 @@ bun run agent --demo
 
 操作面板可以查看实际文件差异、研究来源和模型轨迹。差异与来源面板为只读，支持方向键、PgUp/PgDn、Home/End 滚动；轨迹仍需主动开启。侧栏可从操作面板收起。浏览器 Demo 中的鼠标按钮和独立分栏滚动没有照搬，真实终端使用键盘菜单和临时全屏查看面板。
 
-需要回到原界面时运行 `bun run agent --ui classic`；离线验证可加 `--demo`。墨线布局面向普通 ANSI 终端，Tern 原生界面继续使用原生布局；Windows 和 Tern 尚未完成本轮实测。
+需要回到原界面时运行 `bun run agent --ui classic`；离线验证可加 `--demo`。墨线布局面向普通 ANSI 终端，Tern 原生界面继续使用原生布局；Windows 已通过工具驱动的 ConPTY 离线交互，Tern 尚未实测。
 
-新 clone 的源码先运行 `bun run agent:prepare`。它按锁文件安装产品和工具视图生成器的依赖、生成视图、下载并校验同版本官方原生组件，不执行依赖安装脚本。需要访问 npm registry，当前只验证了 macOS arm64；这是使用预编译组件的源码启动流程，没有编译 Rust。此包依赖同仓库 workspace，不能直接当作独立 npm 包安装。
+新 clone 的源码先运行 `bun run agent:prepare`。它按锁文件安装产品和工具视图生成器的依赖、生成视图、下载并校验同版本官方原生组件，不执行依赖安装脚本。需要访问 npm registry；macOS arm64 是原有验收平台，Windows 的准备、隔离和验证范围见上方说明。这是使用预编译组件的源码启动流程，没有编译 Rust。此包依赖同仓库 workspace，不能直接当作独立 npm 包安装。
 
 启动后等到“输入已就绪”再输入命令或粘贴问题。初始化期间的按键会被忽略，已积压的粘贴与按键片段会清理；若持续输入超过 2 秒未停止，启动会退出并提示重试。
 

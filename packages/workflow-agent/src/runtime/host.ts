@@ -22,6 +22,8 @@ import { closeSessionRuntime, openSessionRuntime, sessionStateDirectory } from "
 import { ProductSessions, type ResumeUI } from "./sessions";
 import { logger } from "@oh-my-pi/pi-utils";
 import { ModelTraces } from "../diagnostics/model-trace";
+import { resolvePreset, samePreset } from "../presets/presets";
+import { PRODUCT_TOOL_NAMES } from "./tool-catalog";
 
 export interface HostOptions {
 	home: string;
@@ -32,6 +34,7 @@ export interface HostOptions {
 	resume?: string;
 	approve?: Approver;
 	permissions?: ApprovalMode;
+	preset?: string;
 }
 export interface Host extends CreateAgentSessionResult {
 	state: RunState;
@@ -44,13 +47,17 @@ export async function openHost(options: HostOptions): Promise<Host> {
 	await fs.mkdir(options.home, { recursive: true, mode: 0o700 });
 	const home = await fs.realpath(options.home);
 	const cwd = await fs.realpath(options.cwd);
-	const config = await loadConfig(home);
-	const light = options.light === true;
+	if (options.preset && options.light) throw new Error("--preset 与 --light 不能同时使用");
+	const base = await loadConfig(home);
+	const preset =
+		options.preset && options.preset !== "legacy" ? await resolvePreset(home, cwd, options.preset, base) : undefined;
+	const config = preset?.config ?? base;
+	const light = preset?.light ?? options.light === true;
 	if (config.model.authPath)
 		throw new Error("本入口暂只使用密钥环境变量，不直接导入旧 Pi 凭据文件；请移除 model.authPath。");
 	const resources = await loadResources(config, cwd, light);
-	const agentDir = path.join(home, "omp/agent");
-	const sessionDir = path.join(home, "sessions");
+	const agentDir = preset?.agentDir ?? path.join(home, "omp/agent");
+	const sessionDir = preset?.sessionDir ?? path.join(home, "sessions");
 	await fs.mkdir(agentDir, { recursive: true });
 	await fs.mkdir(sessionDir, { recursive: true });
 	if (options.resume && !contained(await fs.realpath(sessionDir), await fs.realpath(options.resume)))
@@ -68,6 +75,7 @@ export async function openHost(options: HostOptions): Promise<Host> {
 		if (
 			options.resume &&
 			(!previous ||
+				!samePreset(record(previous, "会话记录").preset, preset?.identity) ||
 				record(previous, "会话记录").signature !== resources.signature ||
 				record(previous, "会话记录").cwd !== cwd)
 		) {
@@ -94,6 +102,8 @@ export async function openHost(options: HostOptions): Promise<Host> {
 			stateDir,
 			sessionId: manager.getSessionId(),
 			light,
+			preset: preset?.identity,
+			sessionDirectory: sessionDir,
 			config,
 			resources,
 			policy,
@@ -155,6 +165,15 @@ export async function openHost(options: HostOptions): Promise<Host> {
 				hasEditTool: true,
 			};
 			const tools = light ? [] : productTools(state, toolContext);
+			if (
+				!light &&
+				(tools.length !== PRODUCT_TOOL_NAMES.length - 1 ||
+					new Set(tools.map(tool => tool.name)).size !== tools.length ||
+					tools.some(
+						tool => !(PRODUCT_TOOL_NAMES as readonly string[]).includes(tool.name) || tool.name === "goal",
+					))
+			)
+				throw new Error("产品工具注册与预设能力清单不一致，请检查工具目录。");
 			// Product tools make their own per-request authorization decisions. OMP
 			// admits only these wrappers; unknown tools retain always-ask behavior.
 			cfgToolsApproval.override(
@@ -277,6 +296,7 @@ export async function openHost(options: HostOptions): Promise<Host> {
 				}
 			});
 			await atomicJson(path.join(stateDir, "manifest.json"), {
+				...(state.preset ? { preset: state.preset } : {}),
 				signature: resources.signature,
 				cwd,
 				sessionId: state.sessionId,

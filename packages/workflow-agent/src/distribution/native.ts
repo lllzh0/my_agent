@@ -3,13 +3,35 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { randomUUID } from "node:crypto";
 
-export const nativePackageName = "@oh-my-pi/pi-natives-darwin-arm64";
-const addonFilename = "pi_natives.darwin-arm64.node";
+export interface NativeTarget {
+	packageName: string;
+	addonFilename: string;
+}
 
-export function nativeRelease(input: unknown, version: string): { tarball: string; integrity: string } {
+export function nativeTarget(platform: NodeJS.Platform = process.platform, arch = process.arch): NativeTarget {
+	if (!(platform === "darwin" && arch === "arm64") && !(platform === "win32" && ["x64", "arm64"].includes(arch)))
+		throw new Error(`源码准备暂不支持 ${platform}-${arch}；当前支持 macOS arm64 和 Windows x64/arm64。`);
+	const tag = `${platform}-${arch}`;
+	return {
+		packageName: `@oh-my-pi/pi-natives-${tag}`,
+		addonFilename: `pi_natives.${tag}${platform === "win32" && arch === "x64" ? "-baseline" : ""}.node`,
+	};
+}
+
+export function nativeTar(): string {
+	const command = process.platform === "win32" ? Bun.which("tar.exe") : "/usr/bin/tar";
+	if (!command) throw new Error("找不到系统 tar.exe；Windows 10 1803+ 提供该工具，请检查 PATH。");
+	return command;
+}
+
+export function nativeRelease(
+	input: unknown,
+	version: string,
+	target = nativeTarget(),
+): { tarball: string; integrity: string } {
 	if (!input || typeof input !== "object") throw new Error("原生发行元数据无效");
 	const value = input as Record<string, unknown>;
-	if (value.name !== nativePackageName || value.version !== version) throw new Error("原生组件名称或版本不匹配");
+	if (value.name !== target.packageName || value.version !== version) throw new Error("原生组件名称或版本不匹配");
 	if (!value.dist || typeof value.dist !== "object") throw new Error("原生发行缺少下载信息");
 	const dist = value.dist as Record<string, unknown>;
 	if (
@@ -30,8 +52,9 @@ export async function installNativeArchive(
 	version: string,
 	metadata: unknown,
 	bytes: Uint8Array,
+	target = nativeTarget(),
 ): Promise<string> {
-	const release = nativeRelease(metadata, version);
+	const release = nativeRelease(metadata, version, target);
 	const integrity = `sha512-${new Bun.CryptoHasher("sha512").update(bytes).digest("base64")}`;
 	if (integrity !== release.integrity) throw new Error("原生归档完整性校验失败；现有组件未修改");
 	const checkout = await fs.realpath(root);
@@ -49,12 +72,12 @@ export async function installNativeArchive(
 			throw new Error("原生输出目录超出 checkout 范围");
 	}
 	const temporary = await fs.mkdtemp(path.join(os.tmpdir(), "agent-native-archive-"));
-	const target = path.join(directory, addonFilename);
-	const staged = `${target}.${randomUUID()}.tmp`;
+	const destination = path.join(directory, target.addonFilename);
+	const staged = `${destination}.${randomUUID()}.tmp`;
 	try {
 		const archive = path.join(temporary, "native.tgz");
 		await Bun.write(archive, bytes);
-		const child = Bun.spawn(["/usr/bin/tar", "-xOzf", archive, `package/${addonFilename}`], {
+		const child = Bun.spawn([nativeTar(), "-xOzf", archive, `package/${target.addonFilename}`], {
 			stdout: "pipe",
 			stderr: "pipe",
 			signal: AbortSignal.timeout(15000),
@@ -66,8 +89,8 @@ export async function installNativeArchive(
 		]);
 		if (code !== 0 || content.byteLength === 0) throw new Error(`原生归档缺少预期组件：${stderr.slice(0, 500)}`);
 		await Bun.write(staged, content);
-		await fs.rename(staged, target);
-		return target;
+		await fs.rename(staged, destination);
+		return destination;
 	} finally {
 		await fs.rm(staged, { force: true });
 		await fs.rm(temporary, { recursive: true, force: true });

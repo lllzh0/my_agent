@@ -1,6 +1,6 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import { SandboxManager } from "@anthropic-ai/sandbox-runtime";
+import { sandboxCapabilities } from "../processes/sandbox-status";
 import { getBundledModel, isGeneratedProvider } from "@oh-my-pi/pi-catalog/models";
 import { loadConfig } from "../config/config";
 import { parseMcpConfig } from "../mcp/config";
@@ -73,7 +73,7 @@ export async function diagnosticReport(home: string, cwd = process.cwd()) {
 			},
 		};
 	}
-	const dependencies = SandboxManager.checkDependencies();
+	const sandbox = await sandboxCapabilities();
 	return {
 		schemaVersion: 1,
 		createdAt: new Date().toISOString(),
@@ -81,9 +81,10 @@ export async function diagnosticReport(home: string, cwd = process.cwd()) {
 		runtime: { engine: "bun", version: Bun.version, platform: process.platform, arch: process.arch },
 		configuration,
 		sandbox: {
-			platformSupported: process.platform === "darwin",
-			dependenciesAvailable: dependencies.errors.length === 0,
-			dependencyIssueCount: dependencies.errors.length,
+			platformSupported: sandbox.platformSupported,
+			backend: sandbox.backend,
+			dependenciesAvailable: sandbox.dependencies.errors.length === 0,
+			dependencyIssueCount: sandbox.dependencies.errors.length,
 		},
 		recentErrors: await recentDiagnostics(home),
 		note: "仅包含诊断元数据，不含密钥、配置路径、提示词、文件或会话正文；未连接模型、搜索或 MCP。",

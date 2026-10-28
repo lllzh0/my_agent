@@ -20,6 +20,7 @@
 		"@oh-my-pi/pi-utils": "workspace:*",
 		"@oh-my-pi/omptype": "workspace:*",
 		"@anthropic-ai/sandbox-runtime": "0.0.50",
+		"@my-agent/windows-sandbox": "npm:@anthropic-ai/sandbox-runtime@0.0.81",
 		"@mozilla/readability": "0.6.0",
 		"linkedom": "0.18.12",
 		"pdfjs-dist": "5.4.624",

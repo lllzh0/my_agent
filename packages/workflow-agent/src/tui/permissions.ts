@@ -9,7 +9,7 @@ export function permissionLabel(mode: ApprovalMode): string {
 export function updateProductStatus(state: RunState, ctx: ExtensionContext): void {
 	ctx.ui.setStatus(
 		"my-agent",
-		`My Agent · ${state.light ? "轻量 · " : ""}${state.policy.mode === "plan" ? "计划" : "执行"} · ${permissionLabel(state.policy.approvalMode)}${state.models ? ` · ${state.models.current().key}` : ""}`,
+		`My Agent${state.preset ? ` · 预设 ${state.preset.id}` : ""} · ${state.light ? "轻量 · " : ""}${state.policy.mode === "plan" ? "计划" : "执行"} · ${permissionLabel(state.policy.approvalMode)}${state.models ? ` · ${state.models.current().key}` : ""}`,
 	);
 }
 

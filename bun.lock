@@ -316,6 +316,7 @@
       "version": "0.2.0",
       "dependencies": {
         "@anthropic-ai/sandbox-runtime": "0.0.50",
+        "@my-agent/windows-sandbox": "npm:@anthropic-ai/sandbox-runtime@0.0.81",
         "@mozilla/readability": "0.6.0",
         "@oh-my-pi/omptype": "workspace:*",
         "@oh-my-pi/pi-ai": "workspace:*",
@@ -418,6 +419,9 @@
     "vite-plugin-solid": "^2.11.12",
   },
   "packages": {
+    "@my-agent/windows-sandbox": ["@anthropic-ai/sandbox-runtime@0.0.81", "", { "dependencies": { "@pondwader/socks5-server": "^1.0.10", "commander": "^12.1.0", "node-forge": "^1.4.0", "zod": "^3.25.0" }, "bin": { "srt": "dist/cli.js" } }, "sha512-bjHDu87gjIR7+Oxy9jPiK3v8CvSELCzfpXa3fjqfSKdvlZET2iF51xcXILWPayTpowB3xtZeQVf2JR916nVW/w=="],
+    "node-forge": ["node-forge@1.4.2", "", {}, "sha512-rRtAR5XLJ8gCKd9du4qrKAsgCG1ObGP4gLeNJMa4vYSeq4bmBMOJk5IHkrviBV0q7uoAJlVd8HEQYQSVUb4FGQ=="],
+
     "@anthropic-ai/sandbox-runtime": ["@anthropic-ai/sandbox-runtime@0.0.50", "", { "dependencies": { "@pondwader/socks5-server": "^1.0.10", "commander": "^12.1.0", "shell-quote": "^1.8.3", "zod": "^3.24.1" }, "bin": { "srt": "dist/cli.js" } }, "sha512-2j0K7jfk72YM+JitJ+O/ml1U+XOlSduR3Vet8YI49ot9ah6TWHyDzFLVBAEk5NCWMdNPULPHok/H6/L9meoxmg=="],
 
     "@anush008/tokenizers": ["@anush008/tokenizers@0.0.0", "", { "optionalDependencies": { "@anush008/tokenizers-darwin-universal": "0.0.0", "@anush008/tokenizers-linux-x64-gnu": "0.0.0", "@anush008/tokenizers-win32-x64-msvc": "0.0.0" } }, "sha512-IQD9wkVReKAhsEAbDjh/0KrBGTEXelqZLpOBRDaIRvlzZ9sjmUP+gKbpvzyJnei2JHQiE8JAgj7YcNloINbGBw=="],

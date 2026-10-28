@@ -1,6 +1,6 @@
 import * as path from "node:path";
 import { KeybindingsManager } from "@oh-my-pi/pi-tui/app-keybindings";
-import { quote } from "shell-quote";
+import { quoteCommand } from "../processes/shell";
 
 export function productKeybindings(): KeybindingsManager {
 	return KeybindingsManager.inMemory({
@@ -28,8 +28,9 @@ export function productResumeCommand(
 	sessionFile: string,
 	demo: boolean,
 	light: boolean,
+	preset?: string,
 ): string {
-	return quote([
+	return quoteCommand([
 		"bun",
 		path.resolve(import.meta.dir, "../launcher.ts"),
 		"--home",
@@ -37,7 +38,7 @@ export function productResumeCommand(
 		"--cwd",
 		cwd,
 		...(demo ? ["--demo"] : []),
-		...(light ? ["--light"] : []),
+		...(preset ? ["--preset", preset] : light ? ["--light"] : []),
 		"--resume",
 		sessionFile,
 	]);

@@ -10,6 +10,7 @@ import {
 import { FileSessionStorage } from "@oh-my-pi/pi-coding-agent/session/session-storage";
 import { logger } from "@oh-my-pi/pi-utils";
 import { contained } from "../policy/policy";
+import { samePreset } from "../presets/presets";
 import { atomicJson, readJson, record } from "../storage";
 import { loadResources } from "./resources";
 import type { RunState } from "./state";
@@ -82,6 +83,7 @@ export class ProductSessions {
 		);
 		if (
 			manifest.sessionId !== info.id ||
+			!samePreset(manifest.preset, this.#state.preset) ||
 			manifest.cwd !== this.#state.cwd ||
 			(await fs.realpath(info.cwd)) !== this.#state.cwd
 		)
@@ -90,7 +92,7 @@ export class ProductSessions {
 	}
 	async list(): Promise<SessionInfo[]> {
 		const state = this.#state;
-		const sessionDir = await fs.realpath(path.join(state.home, "sessions"));
+		const sessionDir = await fs.realpath(state.sessionDirectory ?? path.join(state.home, "sessions"));
 		const sessions = await listSessionsReadOnly(sessionDir, new FileSessionStorage());
 		const selected = await Promise.all(
 			sessions.map(async info => {
@@ -131,7 +133,7 @@ export class ProductSessions {
 			await this.#session.flushToDisk();
 			signal?.throwIfAborted();
 			this.#assertIdle();
-			prepared = SessionManager.create(state.cwd, path.join(state.home, "sessions"));
+			prepared = SessionManager.create(state.cwd, state.sessionDirectory ?? path.join(state.home, "sessions"));
 			prepared.requireExclusiveWriter();
 			await prepared.ensureOnDisk();
 			id = prepared.getSessionId();
@@ -141,6 +143,7 @@ export class ProductSessions {
 			if (!releaseTarget) throw new Error("新会话独占写入失败。");
 			directory = sessionStateDirectory(state.home, id);
 			await atomicJson(path.join(directory, "manifest.json"), {
+				...(state.preset ? { preset: state.preset } : {}),
 				signature: state.resources.signature,
 				cwd: state.cwd,
 				sessionId: id,
@@ -172,7 +175,7 @@ export class ProductSessions {
 		let releaseTarget: (() => void) | undefined;
 		try {
 			signal?.throwIfAborted();
-			const sessionDir = await fs.realpath(path.join(state.home, "sessions"));
+			const sessionDir = await fs.realpath(state.sessionDirectory ?? path.join(state.home, "sessions"));
 			const target = await fs.realpath(sessionFile);
 			if (!contained(sessionDir, target) || path.extname(target) !== ".jsonl")
 				throw new Error("只能恢复当前产品配置目录内的会话");

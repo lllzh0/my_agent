@@ -2,9 +2,11 @@ import * as fs from "node:fs/promises";
 const { realpath, lstat } = fs;
 import * as path from "node:path";
 const { resolve, dirname, basename, relative, isAbsolute, join } = path;
+const { parse: parseWindowsPath } = path.win32;
 import { digest, redact } from "../storage.ts";
 import { untilAborted } from "@oh-my-pi/pi-utils";
 import { highRiskReason } from "./risk";
+import { isWindowsReservedName } from "@oh-my-pi/pi-utils/profile-name";
 
 export interface Request {
 	tool: string;
@@ -24,6 +26,18 @@ export type Approval = "once" | "session" | "deny";
 export type Approver = (request: Request) => Promise<Approval>;
 
 export async function canonicalPath(path: string): Promise<string> {
+	if (process.platform === "win32") {
+		const root = parseWindowsPath(path).root;
+		const rest = path.slice(root.length);
+		if (
+			/^(?:\\\\|\/\/)/.test(path) ||
+			rest.includes(":") ||
+			rest.split(/[/\\]/).some(part => /[. ]$/.test(part) || isWindowsReservedName(part))
+		)
+			throw new Error(
+				"Windows 文件工具仅支持本地普通路径；不接受网络/设备路径、NTFS 数据流、保留设备名或末尾点/空格。",
+			);
+	}
 	try {
 		return await realpath(path);
 	} catch (error) {
@@ -132,7 +146,7 @@ export class Policy {
 		if (kind === "write" && /(?:^|[/\\])(?:\.git|\.codex|\.agents|\.pi|\.omp)(?:$|[/\\])/i.test(target))
 			throw new Error("不能通过文件工具修改受保护的执行配置目录");
 		if (
-			/(?:^|[/\\])(?:\.ssh|\.aws|\.gnupg|\.env(?:\.[^/\\]+)?|auth\.json|mcp-auth\.json|id_rsa|id_ed25519|[^/\\]+\.(?:pem|key))(?:$|[/\\])/i.test(
+			/(?:^|[/\\])(?:\.ssh|\.aws|\.gnupg|\.env(?:\.[^/\\]+)?|env\.local|auth\.json|mcp-auth\.json|id_rsa|id_ed25519|[^/\\]+\.(?:pem|key))(?:$|[/\\])/i.test(
 				target,
 			) &&
 			!target.endsWith(".env.example")

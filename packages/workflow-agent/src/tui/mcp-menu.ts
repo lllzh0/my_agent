@@ -8,7 +8,7 @@ import { record, redact } from "../storage";
 
 export type McpMenuUI = Pick<ExtensionContext["ui"], "select" | "input" | "confirm" | "editor" | "notify">;
 export async function mcpMenu(
-	state: Pick<RunState, "home" | "config" | "mcp">,
+	state: Pick<RunState, "home" | "config" | "mcp" | "preset">,
 	ui: McpMenuUI,
 	signal?: AbortSignal,
 ): Promise<void> {
@@ -20,9 +20,7 @@ export async function mcpMenu(
 			"查看连接状态",
 			"连接并查看工具",
 			"断开连接",
-			"添加远程 HTTP 服务",
-			"添加本地 stdio 服务",
-			"启用或停用服务（重启生效）",
+			...(!state.preset ? ["添加远程 HTTP 服务", "添加本地 stdio 服务", "启用或停用服务（重启生效）"] : []),
 			"返回",
 		]);
 		signal?.throwIfAborted();
@@ -52,6 +50,8 @@ export async function mcpMenu(
 			} else await show("MCP 工具及参数", await state.mcp.list(name, signal));
 			return;
 		}
+		if (state.preset)
+			throw new Error("命名预设不修改共享 MCP 配置；请在 legacy 入口配置服务，再编辑预设中的服务引用并重新启动。");
 		const next = structuredClone(state.config);
 		if (choice === "启用或停用服务（重启生效）") {
 			const names = Object.keys(next.mcpServers);

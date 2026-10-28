@@ -17,6 +17,8 @@ import * as path from "node:path";
 import { expandWindowsLongPath } from "@oh-my-pi/pi-natives/path";
 import { engines, version } from "../package.json" with { type: "json" };
 import { isEnoent, isEnotdir } from "./fs-error";
+import { normalizeProfileName } from "./profile-name";
+export { normalizeProfileName } from "./profile-name";
 
 /** App name (e.g. "omp") */
 export const APP_NAME: string = "omp";
@@ -39,45 +41,7 @@ export const USER_AGENT = `omp/${VERSION}`;
 /** Minimum Bun version */
 export const MIN_BUN_VERSION: string = engines.bun.replace(/[^0-9.]/g, "");
 
-const PROFILE_NAME_RE = /^[a-z0-9][a-z0-9._-]{0,63}$/;
 const PROFILE_ENV_KEYS = ["OMP_PROFILE", "PI_PROFILE"] as const;
-
-/**
- * Names Windows treats as reserved device aliases. Matches the basename
- * itself as well as any `BASENAME.<anything>` form, because Windows reserves
- * `CON.foo`/`PRN.txt`/etc. too — using them as a profile name would let
- * `setProfile` accept the input only for directory creation to fail later
- * with a confusing `ENOENT`/`EINVAL`. Case-insensitive: NTFS treats `CON`
- * and `con` identically.
- */
-const WINDOWS_RESERVED_BASENAME_RE = /^(?:CON|PRN|AUX|NUL|COM[0-9]|LPT[0-9])(?:\..*)?$/i;
-
-/**
- * Normalize and validate a profile name. Returns `undefined` for the implicit
- * default (empty string, whitespace, or the explicit "default" sentinel) and
- * throws for syntactically invalid or platform-reserved names.
- *
- * Exported so consumers of `@oh-my-pi/pi-utils/dirs` (CLI bootstrap, tests,
- * downstream tools) can validate user input without re-deriving the rules.
- */
-export function normalizeProfileName(profile: string | undefined): string | undefined {
-	const normalized = profile?.trim();
-	if (!normalized || normalized === "default") return undefined;
-	if (
-		normalized === "." ||
-		normalized === ".." ||
-		normalized.endsWith(".") ||
-		!PROFILE_NAME_RE.test(normalized) ||
-		WINDOWS_RESERVED_BASENAME_RE.test(normalized)
-	) {
-		throw new Error(
-			`Invalid OMP profile "${profile}". Profile names must match ${PROFILE_NAME_RE.source}, ` +
-				`cannot be "." or "..", cannot end with ".", and cannot be a Windows reserved device name ` +
-				`(CON, PRN, AUX, NUL, COM0-9, LPT0-9, or any of those with an extension).`,
-		);
-	}
-	return normalized;
-}
 
 /**
  * Resolve the active profile from the two profile env vars. `OMP_PROFILE` is the
@@ -113,7 +77,7 @@ function readProfileFromEnvSafe(): string | undefined {
 
 /** Profile-independent config root (~/.omp), shared by every omp profile. */
 export function getBaseConfigRoot(): string {
-	return path.join(os.homedir(), getConfigDirName());
+	return path.resolve(os.homedir(), getConfigDirName());
 }
 
 function getProfileConfigRoot(profile: string | undefined): string {
@@ -303,7 +267,7 @@ export function getSafeProjectCwd(): string {
 	return os.homedir();
 }
 
-/** Get the config directory name relative to home (e.g. ".omp" or PI_CONFIG_DIR override). */
+/** Get the config directory override: relative to home by default, or an absolute path. */
 export function getConfigDirName(): string {
 	return process.env.PI_CONFIG_DIR || CONFIG_DIR_NAME;
 }
