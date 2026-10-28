@@ -12,6 +12,8 @@
 
 ### Fixed
 
+- Compaction now keeps its completed summary when the optional display summary fails or is empty; cancellation still cancels compaction ([#16942](https://github.com/can1357/oh-my-pi/pull/16942) by [@Mouriya-Emma](https://github.com/Mouriya-Emma)).
+
 - Malformed DeepSeek chat-template calls receive a recovery notice without retaining broken markup in history.
 
 - Fixed a Claude compaction or branch summarizer receiving assistant reasoning from a snapcompact archive rendered under another model, which Claude refuses (`reasoning_extraction`) ([#15436](https://github.com/can1357/oh-my-pi/pull/15436) by [@will-bogusz](https://github.com/will-bogusz))
