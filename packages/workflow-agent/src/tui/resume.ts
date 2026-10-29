@@ -3,6 +3,9 @@ import type { SessionInfo } from "@oh-my-pi/pi-coding-agent/session/session-list
 import { SessionSelectorComponent } from "@oh-my-pi/pi-tui/overlays/session-selector";
 import type { RunState } from "../runtime/state";
 import { updateProductStatus } from "./permissions";
+import { listPresets } from "../presets/store";
+import { presetHistory, type PresetSessionInfo } from "../presets/history";
+import { requestPresetTransition } from "./preset-transition";
 
 export async function resumeFromCommand(
 	state: RunState,
@@ -14,7 +17,19 @@ export async function resumeFromCommand(
 	if (state.jobs.hasActiveJobs) throw new Error("后台任务仍在运行或等待批准；先停止任务再恢复旧会话。");
 	const controller = state.sessions;
 	if (!controller) throw new Error("会话恢复尚未初始化。");
-	const sessions = await controller.list();
+	const current = await controller.list();
+	const sessions: PresetSessionInfo[] = current.map(info => ({ ...info, preset: state.preset?.id ?? "legacy" }));
+	if (state.handoff) {
+		for (const item of await listPresets(state.home)) {
+			if (item.id === (state.preset?.id ?? "legacy") || item.status === "invalid") continue;
+			sessions.push(
+				...(await presetHistory(state.home, state.cwd, item.id, state.sessionId)).map(info => ({
+					...info,
+					title: `[${item.id}] ${info.title ?? info.firstMessage.slice(0, 60)}`,
+				})),
+			);
+		}
+	}
 	let selected: string | undefined;
 	if (args) {
 		const exact = sessions.filter(session => session.id === args);
@@ -51,6 +66,11 @@ export async function resumeFromCommand(
 	}
 	if (!selected) return;
 	ensureIdle();
+	const target = sessions.find(info => info.path === selected);
+	if (target && state.handoff && (target.preset !== "legacy" || target.preset !== (state.preset?.id ?? "legacy"))) {
+		requestPresetTransition(state, ctx, { preset: target.preset, resume: target.path });
+		return;
+	}
 	const result = await controller.resume(selected, ctx.signal);
 	updateProductStatus(state, ctx);
 	ctx.ui.notify(

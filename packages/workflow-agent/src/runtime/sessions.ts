@@ -43,6 +43,7 @@ export class ProductSessions {
 		return this.#closed;
 	}
 	assertSubmissionAllowed(): void {
+		if (this.#state.handoff?.busy) throw new Error("正在交接预设，请稍后再输入。");
 		this.#state.liveResources?.assertSubmissionAllowed();
 		if (this.#state.review?.busy) throw new Error("正在审查代码，请先取消或等待完成。");
 		if (this.#state.models?.busy) throw new Error("正在切换模型，请稍后再恢复会话。");
@@ -75,6 +76,13 @@ export class ProductSessions {
 		const goal = this.#session.getGoalModeState();
 		if (goal?.enabled || goal?.mode === "exiting")
 			throw new Error("目标仍在执行；先用 /goal pause 暂停后再切换会话。");
+	}
+	assertIdle(): void {
+		this.#state.liveResources?.assertSubmissionAllowed();
+		this.#state.review?.assertSubmissionAllowed();
+		this.#state.models?.assertSubmissionAllowed();
+		if (this.busy || this.#closed) throw new Error("会话正在切换或关闭。");
+		this.#assertIdle();
 	}
 	async #manifest(info: SessionInfo): Promise<Record<string, unknown>> {
 		const manifest = record(

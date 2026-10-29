@@ -25,8 +25,8 @@ const commands: SlashCommand[] = [
 	{ name: "agent", description: "打开产品主菜单" },
 	{
 		name: "preset",
-		description: "管理预设草稿、复制、资源和下次启动默认",
-		argumentHint: "[show|edit|create|copy|bind|default|defaults] [ID]",
+		description: "切换预设，管理草稿、资源和启动默认",
+		argumentHint: "[use|show|edit|create|copy|bind|default|defaults] [ID] [--new]",
 		allowArgs: true,
 	},
 	{ name: "context", description: "查看上下文用量和已加载资源" },

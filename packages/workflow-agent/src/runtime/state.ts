@@ -14,6 +14,7 @@ import type { ProductModels } from "../models/controller";
 import type { LiveResources } from "./live-resources";
 import type { ModelTraces } from "../diagnostics/model-trace";
 import type { PresetIdentity } from "../presets/presets";
+import type { PresetHandoff } from "../presets/handoff-client";
 
 export interface RunState {
 	home: string;
@@ -38,4 +39,6 @@ export interface RunState {
 	review?: ProductReview;
 	liveResources?: LiveResources;
 	traces?: ModelTraces;
+	handoff?: PresetHandoff;
+	snapshotWritable?: boolean;
 }

@@ -32,6 +32,60 @@ function remote(name: string) {
 const names = (request: WireRequest) => (request.tools ?? []).map(tool => tool.function.name).sort();
 
 test(
+	"named cold recovery restores the saved connection key, effort and plan without inheriting another default",
+	async () => {
+		const f = await fixture();
+		try {
+			f.config.model.key = "primary";
+			f.config.models = [{ ...f.config.model, key: "second", apiKeyEnv: "PRODUCT_TEST_KEY_B" }];
+			await Bun.write(
+				path.join(f.home, "presets/a/preset.json"),
+				JSON.stringify({
+					...builtinPreset("bare"),
+					id: "a",
+					name: "a",
+					tools: ["read"],
+					model: { default: "primary", allowed: ["primary", "second"] },
+				}),
+			);
+			const first = await f.run({
+				preset: "a",
+				action: "commands",
+				commands: ["/model second max", "/plan"],
+				promptAfterCommands: "A_SECOND_CONNECTION",
+			});
+			expect(first.code, first.stderr).toBe(0);
+			const manifest = await Bun.file(path.join(first.result.stateDir, "manifest.json")).json();
+			expect(manifest.runtime.model.model).toBe("second");
+			expect(manifest.runtime.model.effort).toBe("max");
+			expect(manifest.runtime.plan).toBe(true);
+			const savedManifest = await Bun.file(path.join(first.result.stateDir, "manifest.json")).text();
+			const savedHistory = await Bun.file(first.result.sessionFile).text();
+			const prepared = await f.run({ preset: "a", resume: first.result.sessionFile, prepared: true });
+			expect(prepared.code).not.toBe(0);
+			expect(prepared.stderr).toContain("预设尚未激活");
+			expect(f.requests).toHaveLength(1);
+			expect(await Bun.file(path.join(first.result.stateDir, "manifest.json")).text()).toBe(savedManifest);
+			expect(await Bun.file(first.result.sessionFile).text()).toBe(savedHistory);
+			const resumed = await f.run({
+				preset: "a",
+				resume: first.result.sessionFile,
+				action: "submit",
+				command: "A_SECOND_RESTORED",
+			});
+			expect(resumed.code, resumed.stderr).toBe(0);
+			expect(resumed.result.stateSessionId).toBe(first.result.stateSessionId);
+			expect(f.requests).toHaveLength(2);
+			expect(f.requestHeaders.every(header => header.authorization === "Bearer fake-second-key")).toBe(true);
+			expect(JSON.stringify(f.requests.at(-1))).toContain("A_SECOND_CONNECTION");
+		} finally {
+			await f.close();
+		}
+	},
+	HOST_TEST_TIMEOUT,
+);
+
+test(
 	"A to B to resumed A keeps actual requests, selected MCP, credentials, history and undo records separate",
 	async () => {
 		const f = await fixture();

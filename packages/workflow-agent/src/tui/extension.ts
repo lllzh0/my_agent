@@ -21,6 +21,7 @@ import { parseProductSkill } from "./skill-input";
 import { chooseApproval } from "./operation-preview";
 import { InkDocument } from "./ink-document";
 import { sanitizeText } from "@oh-my-pi/pi-utils";
+import { saveSessionSnapshot } from "../runtime/session-snapshot";
 
 export function productExtension(
 	state: RunState,
@@ -117,9 +118,9 @@ export function productExtension(
 				);
 				return { handled: true };
 			}
-			if (state.sessions?.busy || state.sessions?.closed) {
+			if (state.handoff?.busy || state.sessions?.busy || state.sessions?.closed) {
 				ctx.ui.notify(
-					state.sessions.closed ? "会话正在关闭，无法接收新输入。" : "正在切换会话，请稍后再输入。",
+					state.sessions?.closed ? "会话正在关闭，无法接收新输入。" : "正在切换会话，请稍后再输入。",
 					"info",
 				);
 				return { handled: true };
@@ -197,12 +198,15 @@ export function productExtension(
 		api.on("session_before_branch", cancelTransition);
 		api.on("session_before_tree", cancelTransition);
 		api.on("session_shutdown", async () => {
+			const session = getSession();
+			if (session) await saveSessionSnapshot(state, session);
 			await state.liveResources?.close();
 			await state.sessions?.close();
 			state.policy.clearGrants();
 			await state.mcp.close();
 			await state.jobs.close();
-			await atomicJson(path.join(state.stateDir, "audit.json"), state.policy.audit);
+			if (state.snapshotWritable !== false)
+				await atomicJson(path.join(state.stateDir, "audit.json"), state.policy.audit);
 			await onShutdown();
 		});
 		api.registerCommand("agent-plan", {

@@ -24,6 +24,8 @@ import { logger } from "@oh-my-pi/pi-utils";
 import { ModelTraces } from "../diagnostics/model-trace";
 import { resolvePreset, samePreset } from "../presets/presets";
 import { PRODUCT_TOOL_NAMES } from "./tool-catalog";
+import { readSessionSnapshot } from "./session-snapshot";
+import { PreparedTranscript } from "../presets/prepared-transcript";
 
 export interface HostOptions {
 	home: string;
@@ -35,11 +37,15 @@ export interface HostOptions {
 	approve?: Approver;
 	permissions?: ApprovalMode;
 	preset?: string;
+	plan?: boolean;
+	onAllocated?: (id: string, file: string) => void;
+	prepared?: boolean;
 }
 export interface Host extends CreateAgentSessionResult {
 	state: RunState;
 	closed: Promise<void>;
 	setResumeUI(handler: ResumeUI | undefined): void;
+	activate(): Promise<void>;
 	dispose(): Promise<void>;
 }
 
@@ -60,13 +66,20 @@ export async function openHost(options: HostOptions): Promise<Host> {
 	const sessionDir = preset?.sessionDir ?? path.join(home, "sessions");
 	await fs.mkdir(agentDir, { recursive: true });
 	await fs.mkdir(sessionDir, { recursive: true });
-	if (options.resume && !contained(await fs.realpath(sessionDir), await fs.realpath(options.resume)))
+	const resumeFile = options.resume ? await fs.realpath(options.resume) : undefined;
+	if (resumeFile && !contained(await fs.realpath(sessionDir), resumeFile))
 		throw new Error("只能恢复当前产品配置目录内的会话");
-	const manager = options.resume
-		? await SessionManager.open(options.resume, sessionDir, undefined, { throwIfMissing: true })
+	const preparedTranscript =
+		options.prepared && resumeFile
+			? new PreparedTranscript(resumeFile, await Bun.file(resumeFile).bytes())
+			: undefined;
+	const manager = resumeFile
+		? await SessionManager.open(resumeFile, sessionDir, preparedTranscript?.storage, { throwIfMissing: true })
 		: SessionManager.create(cwd, sessionDir);
 	try {
 		manager.requireExclusiveWriter();
+		if (!options.resume && manager.getSessionFile())
+			options.onAllocated?.(manager.getSessionId(), manager.getSessionFile()!);
 		if ((await fs.realpath(manager.getCwd())) !== cwd) {
 			throw new Error("恢复会话的工作区不一致");
 		}
@@ -114,6 +127,7 @@ export async function openHost(options: HostOptions): Promise<Host> {
 			research: activeRuntime.research,
 			workflow: activeRuntime.workflow,
 			turn: "initial",
+			snapshotWritable: false,
 		};
 		const closed = Promise.withResolvers<void>();
 		state.traces = new ModelTraces(() => state);
@@ -253,7 +267,12 @@ export async function openHost(options: HostOptions): Promise<Host> {
 			state.sessions = sessions;
 			models.attach(session, bindReviewer);
 			state.review = new ProductReview(state, session);
+			const snapshot = options.resume && preset ? readSessionSnapshot(previous) : undefined;
+			if (snapshot) await models.select(snapshot.model.model, snapshot.model.effort);
+			if (snapshot?.plan || options.plan) state.policy.mode = "plan";
 			created.session.setSubmissionGuard(() => {
+				if (options.prepared && state.snapshotWritable === false)
+					throw new Error("预设尚未激活，不能提交模型请求。");
 				sessions!.assertSubmissionAllowed();
 				models!.assertSubmissionAllowed();
 				state.review!.assertSubmissionAllowed();
@@ -295,14 +314,16 @@ export async function openHost(options: HostOptions): Promise<Host> {
 					activeRuntime.diagnostics.recordModelStream(event.message, streamBuffer.snapshot());
 				}
 			});
-			await atomicJson(path.join(stateDir, "manifest.json"), {
-				...(state.preset ? { preset: state.preset } : {}),
-				signature: resources.signature,
-				cwd,
-				sessionId: state.sessionId,
-				resources: resources.entries,
-				tools: created.session.getActiveToolNames(),
-			});
+			if (!(options.prepared && options.resume))
+				await atomicJson(path.join(stateDir, "manifest.json"), {
+					...(snapshot ? { runtime: snapshot } : {}),
+					...(state.preset ? { preset: state.preset } : {}),
+					signature: resources.signature,
+					cwd,
+					sessionId: state.sessionId,
+					resources: resources.entries,
+					tools: created.session.getActiveToolNames(),
+				});
 			if (!options.interactive)
 				await initializeExtensions(created.session, {
 					reportSendError: (_action, error) => {
@@ -314,12 +335,16 @@ export async function openHost(options: HostOptions): Promise<Host> {
 				});
 			// Product records exist before the first chat turn, so their owning session must too.
 			await session.sessionManager.ensureOnDisk();
+			state.snapshotWritable = !options.prepared;
 			let disposing: Promise<void> | undefined;
 			return {
 				...created,
 				state,
 				closed: closed.promise,
 				setResumeUI: handler => sessions!.setUI(handler),
+				async activate() {
+					await preparedTranscript?.activate(manager);
+				},
 				dispose() {
 					disposing ??= (async () => {
 						try {

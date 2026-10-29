@@ -26,8 +26,8 @@ Windows 命令隔离还需单独的系统安装，见 [Windows 使用说明](wor
 | 编辑审批、命令结果、输入与恢复 | 已实现；[共享 UI 记录](verification/approval-command-ui-2026-10-28.md)、[macOS 终端验收](verification/mac-preset-2026-10-28.md) |
 | 文件格式、撤销、摘要及压缩队列 | 已回移并审查；Mac 产品 359 pass / 16 skip / 0 fail，见 [稳定性验收](verification/upstream-stability-2026-10-28.md) |
 | Windows 最新回归与准备 | 专项 99 pass、宿主筛选 7 pass；空缓存完整 prepare、离线启动和 check 通过；真实隔离初始化仍失败，见 [批次 1 验证](verification/batch1-cross-platform-2026-10-29.md) |
-| 预设启动、管理与隔离 | 已实现草稿编辑/资源选择/复制、检查与默认绑定，保持独立历史和冷恢复；[使用方式](workflow-agent-presets.md)、[批次 2 证据](verification/batch2-preset-management-2026-10-29.md) |
-| 真实模型 | 已有 OpenCode Go / DeepSeek V4.1 Flash max 最小命令链和辅助式代码任务；[Windows 记录](verification/windows-2026-10-28.md)、[代码任务](workflow-agent-real-code-acceptance.md) |
+| 预设管理与终端交接 | 已实现草稿、资源、默认绑定及空闲交接/取消/失败回退；Windows 真实模型 A/B/A 通过，未激活目标写入暂存；[使用方式](workflow-agent-presets.md)、[批次 3 证据](verification/batch3-terminal-handoff-2026-10-29.md) |
+| 真实模型 | Windows 新增 10 次 Go / DeepSeek V4.1 Flash max 请求，开源源码修复独立检查 45/45，A/B/A 冷恢复及请求隔离通过；[本轮验收](verification/preset-real-agent-2026-10-29.md)。历史最小命令链及 Mac 代码任务仍见 [Windows 记录](verification/windows-2026-10-28.md)、[代码任务](workflow-agent-real-code-acceptance.md) |
 | 研究服务 | 内置 Tavily 路径及 HTTP MCP 已实现；Exa 曾有真实来源链验证，Tavily 真实账号/研究质量仍待验收 |
 
 自动、模拟模型、真实系统隔离、付费模型任务和用户接受是不同证据。Windows alpha 暂不支持隔离 stdio MCP，普通权限拒绝启动，不自动改为 full；网络过滤仍保留已记录的匿名令牌 loopback 边界。
@@ -35,7 +35,7 @@ Windows 命令隔离还需单独的系统安装，见 [Windows 使用说明](wor
 ## 下一步
 
 - 先修复本机 Windows 原生初始化的锁文件拒绝访问，重跑真实隔离验收；详见批次 1 记录。
-- 批次 3：空闲进程交接、清理与失败回退；本批预设编辑界面的 Mac 实机复验另行补齐。
+- 补预设管理/交接的 Mac 实机与完整 Windows 回归；后者在旧 30 秒用例预算处失败并中断，不能以定向通过代替全量；大历史与长期行为另验。
 - Windows 本地 MCP 隔离能力修复；Mac 新准备参数的真实新目录复验、其余硬件架构验收。
 - 六项真实任务的用户试用、Tavily 与长期/断网/限流验证，见 [任务验收](workflow-agent-acceptance.md)。
 - GUI、独立安装包和升级迁移另行处理。

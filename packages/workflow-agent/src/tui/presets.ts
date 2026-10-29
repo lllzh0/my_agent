@@ -7,6 +7,11 @@ import { copyPresetDraft, listPresets, newPresetDraft, openPresetDraft } from ".
 import { presetCommand } from "../presets/cli";
 import { presetDefaults, setPresetDefault } from "../presets/defaults";
 import { InkDocument } from "./ink-document";
+import { presetHistory } from "../presets/history";
+import { readPreset, samePreset, resolvePreset } from "../presets/presets";
+import { presetBaseConfig } from "../presets/store";
+import { requestPresetTransition } from "./preset-transition";
+import { loadResources } from "../runtime/resources";
 
 export async function presetFromCommand(
 	state: RunState,
@@ -57,7 +62,7 @@ export async function presetFromCommand(
 	const pick = async () => {
 		const items = await listPresets(state.home);
 		const labels = items.map(item => `${item.id} · ${item.name ?? "无效清单"} · ${item.status}`);
-		const selected = await ui.select("选择预设（不切换当前会话）", labels);
+		const selected = await ui.select("选择预设", labels);
 		return selected === undefined ? undefined : items[labels.indexOf(selected)]?.id;
 	};
 	const words = args.trim().split(/\s+/).filter(Boolean);
@@ -65,8 +70,8 @@ export async function presetFromCommand(
 	let id: string | undefined = words[1];
 	let target: string | undefined = words[2];
 	if (words.length > 3) throw new Error("预设命令参数过多");
-	if (target && !["copy", "clone"].includes(action ?? "")) throw new Error("只有 copy/clone 接受来源和新 ID 两个参数");
-	if (action === "use") throw new Error("运行中切换尚未开放；请退出后使用 --preset，或先设置下次启动默认。");
+	if (target && !["copy", "clone", "use"].includes(action ?? ""))
+		throw new Error("只有 copy/clone 或 use 接受第三个参数");
 	if (!action) {
 		const choices = [
 			"当前预设与实际资源",
@@ -79,9 +84,10 @@ export async function presetFromCommand(
 			"设置全局默认",
 			"清除全局默认",
 			"查看启动默认",
+			"切换预设",
 			"返回",
 		];
-		const chosen = await ui.select("预设管理 · 修改只影响下次启动", choices);
+		const chosen = await ui.select("预设管理 · 编辑保存与会话切换", choices);
 		if (!chosen || chosen === "返回") return;
 		if (chosen === "当前预设与实际资源") return showCurrent();
 		action = (
@@ -95,8 +101,52 @@ export async function presetFromCommand(
 				设置全局默认: "default",
 				清除全局默认: "clear-default",
 				查看启动默认: "defaults",
+				切换预设: "use",
 			} as Record<string, string>
 		)[chosen];
+	}
+	if (action === "use") {
+		ensureIdle();
+		if (!state.handoff) throw new Error("预设交接需要从产品 launcher 的交互终端启动。");
+		if (target && target !== "--new") throw new Error("用法：/preset use ID [--new]");
+		id ??= await pick();
+		if (!id) return;
+		if (id !== "legacy") await readPreset(state.home, id);
+		let changed = false;
+		if (id === (state.preset?.id ?? "legacy") && !target) {
+			const compiled =
+				id === "legacy"
+					? undefined
+					: await resolvePreset(state.home, state.cwd, id, await presetBaseConfig(state.home));
+			const resources = compiled ? await loadResources(compiled.config, state.cwd, compiled.light) : state.resources;
+			if (samePreset(state.preset, compiled?.identity) && resources.signature === state.resources.signature) {
+				ui.notify("已在此预设；可加 --new 新建独立会话。");
+				return;
+			}
+			changed = true;
+			await ui.preview(
+				"磁盘定义已改变，只能新建（当前生效快照保留）",
+				JSON.stringify(
+					{
+						currentResources: state.resources.entries,
+						next: await readPreset(state.home, id),
+					},
+					null,
+					2,
+				),
+			);
+		}
+		const histories = target || changed ? [] : await presetHistory(state.home, state.cwd, id, state.sessionId);
+		let resume: string | undefined;
+		const labels = histories.map(info => `恢复 ${info.id} · ${info.title ?? info.firstMessage.slice(0, 60)}`);
+		if (histories.length || changed) {
+			const selected = await ui.select("切换到独立运行环境", ["新建会话", ...labels, "取消"]);
+			if (!selected || selected === "取消") return;
+			if (selected !== "新建会话") resume = histories[labels.indexOf(selected)]?.path;
+		}
+		ensureIdle();
+		requestPresetTransition(state, ctx, { preset: id, resume });
+		return;
 	}
 	if (action === "defaults")
 		return ui.preview(

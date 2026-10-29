@@ -6981,6 +6981,13 @@ export class InteractiveMode implements InteractiveModeContext {
 		this.isInitialized = false;
 	}
 
+	/** Embedded launchers own process exit after the ordinary teardown releases the terminal. */
+	async closeForHandoff(): Promise<void> {
+		if (this.#isShuttingDown) throw new Error("Session is already closing");
+		this.#beginClose();
+		await this.#teardown();
+	}
+
 	async shutdown(): Promise<void> {
 		if (this.#isShuttingDown) return;
 		// The previous graceful teardown failed AT the memoized session.dispose()

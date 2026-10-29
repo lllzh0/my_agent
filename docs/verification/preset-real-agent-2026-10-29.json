@@ -1,0 +1,390 @@
+{
+  "date": "2026-10-29",
+  "productCommit": "4ad2f31dc3",
+  "platform": "win32-x64",
+  "scope": "Implemented preset startup and cold A-B-A recovery; no in-terminal handoff",
+  "source": {
+    "repository": "https://github.com/sindresorhus/escape-string-regexp",
+    "issue": "https://github.com/sindresorhus/escape-string-regexp/issues/20",
+    "revision": "5085b257c801507460270b747f645276fbc1d937",
+    "files": [
+      "index.js",
+      "test.js",
+      "index.d.ts",
+      "package.json",
+      "readme.md",
+      "license"
+    ],
+    "baselineUnicodeFails": true,
+    "runtime": "1.3.14",
+    "productCommit": "4ad2f31dc3",
+    "platform": "win32"
+  },
+  "realTerminal": "Windows ConPTY / launcher / Ink TUI",
+  "launcherExits": {
+    "codingA": 0,
+    "reviewB": 0,
+    "resumedCodingA": 0
+  },
+  "permissions": {
+    "mode": "manual",
+    "writeApprovals": [
+      {
+        "tool": "edit",
+        "decision": "once",
+        "mode": "manual"
+      },
+      {
+        "tool": "edit",
+        "decision": "once",
+        "mode": "manual"
+      },
+      {
+        "tool": "write",
+        "decision": "once",
+        "mode": "manual"
+      }
+    ],
+    "fullAccessUsed": false,
+    "commandToolEnabled": false,
+    "networkToolsEnabled": false
+  },
+  "preview": {
+    "toolDrivenObserved": true,
+    "openedReadOnlyDetails": true,
+    "returnedToApproval": true,
+    "fileExistedAfterPreviewBeforeApproval": false
+  },
+  "checks": {
+    "allRequestsRealGoDeepSeekMax": true,
+    "allRequestsFinished": true,
+    "allRequestResourcesAndHistoriesIsolated": true,
+    "oneHistoryPerPreset": true,
+    "bHasNoChangeJournal": true,
+    "aJournalContainsOnlyExpectedFiles": true,
+    "bAndResumedAHaveNotChangedProject": true,
+    "originalARecovered": true,
+    "keyAbsentFromArtifacts": true
+  },
+  "paidModelCalls": 10,
+  "sessions": [
+    {
+      "id": "01a1860a-99e9-7000-ba32-34694ec988e0",
+      "preset": "coding-a",
+      "historyFiles": [
+        "2026-10-29T05-03-24-139Z_01a1860a-99e9-7000-ba32-34694ec988e0.jsonl"
+      ],
+      "tools": [
+        "read",
+        "write",
+        "edit"
+      ],
+      "changes": [
+        {
+          "id": "4ac0e2a3-a5a3-4058-8ec9-ddc2b819bf33",
+          "file": "index.js",
+          "restored": 0
+        },
+        {
+          "id": "4c9b1838-7c92-4b1f-8169-97c2566f3b89",
+          "file": "index.js",
+          "restored": 0
+        },
+        {
+          "id": "78b55991-f87a-4a39-9a11-90ebc1e40d91",
+          "file": "regression.test.cjs",
+          "restored": 0
+        }
+      ],
+      "requests": [
+        {
+          "id": "01a1860b-8c85-7000-820a-f5cecfb17859",
+          "status": "toolUse",
+          "http": [
+            200
+          ],
+          "durationMs": 2576,
+          "provider": "opencode-go",
+          "model": "deepseek-v4.1-flash",
+          "effort": "max",
+          "expectedRulePresent": true,
+          "otherRuleAbsent": true,
+          "ownHistoryPresent": true,
+          "otherHistoryAbsent": true,
+          "requestIsResumeCheck": false,
+          "tools": [
+            "edit",
+            "read",
+            "write"
+          ],
+          "toolsMatch": true,
+          "responseTools": [
+            "read"
+          ]
+        },
+        {
+          "id": "01a1860b-9a4e-7000-9163-535693770937",
+          "status": "toolUse",
+          "http": [
+            200
+          ],
+          "durationMs": 26400,
+          "provider": "opencode-go",
+          "model": "deepseek-v4.1-flash",
+          "effort": "max",
+          "expectedRulePresent": true,
+          "otherRuleAbsent": true,
+          "ownHistoryPresent": true,
+          "otherHistoryAbsent": true,
+          "requestIsResumeCheck": false,
+          "tools": [
+            "edit",
+            "read",
+            "write"
+          ],
+          "toolsMatch": true,
+          "responseTools": [
+            "edit"
+          ]
+        },
+        {
+          "id": "01a1860c-9739-7000-ab41-7b084d5e0708",
+          "status": "toolUse",
+          "http": [
+            200
+          ],
+          "durationMs": 2279,
+          "provider": "opencode-go",
+          "model": "deepseek-v4.1-flash",
+          "effort": "max",
+          "expectedRulePresent": true,
+          "otherRuleAbsent": true,
+          "ownHistoryPresent": true,
+          "otherHistoryAbsent": true,
+          "requestIsResumeCheck": false,
+          "tools": [
+            "edit",
+            "read",
+            "write"
+          ],
+          "toolsMatch": true,
+          "responseTools": [
+            "edit"
+          ]
+        },
+        {
+          "id": "01a1860d-b626-7000-9265-f73bebc6a07a",
+          "status": "toolUse",
+          "http": [
+            200
+          ],
+          "durationMs": 17955,
+          "provider": "opencode-go",
+          "model": "deepseek-v4.1-flash",
+          "effort": "max",
+          "expectedRulePresent": true,
+          "otherRuleAbsent": true,
+          "ownHistoryPresent": true,
+          "otherHistoryAbsent": true,
+          "requestIsResumeCheck": false,
+          "tools": [
+            "edit",
+            "read",
+            "write"
+          ],
+          "toolsMatch": true,
+          "responseTools": [
+            "write"
+          ]
+        },
+        {
+          "id": "01a1860e-ff57-7000-886b-fb66ccf10a28",
+          "status": "toolUse",
+          "http": [
+            200
+          ],
+          "durationMs": 3427,
+          "provider": "opencode-go",
+          "model": "deepseek-v4.1-flash",
+          "effort": "max",
+          "expectedRulePresent": true,
+          "otherRuleAbsent": true,
+          "ownHistoryPresent": true,
+          "otherHistoryAbsent": true,
+          "requestIsResumeCheck": false,
+          "tools": [
+            "edit",
+            "read",
+            "write"
+          ],
+          "toolsMatch": true,
+          "responseTools": [
+            "read",
+            "read"
+          ]
+        },
+        {
+          "id": "01a1860f-0e76-7000-b770-779c36609ece",
+          "status": "stop",
+          "http": [
+            200
+          ],
+          "durationMs": 17312,
+          "provider": "opencode-go",
+          "model": "deepseek-v4.1-flash",
+          "effort": "max",
+          "expectedRulePresent": true,
+          "otherRuleAbsent": true,
+          "ownHistoryPresent": true,
+          "otherHistoryAbsent": true,
+          "requestIsResumeCheck": false,
+          "tools": [
+            "edit",
+            "read",
+            "write"
+          ],
+          "toolsMatch": true,
+          "responseTools": []
+        },
+        {
+          "id": "01a18614-6932-7000-a9f3-f8990f74f14b",
+          "status": "stop",
+          "http": [
+            200
+          ],
+          "durationMs": 3851,
+          "provider": "opencode-go",
+          "model": "deepseek-v4.1-flash",
+          "effort": "max",
+          "expectedRulePresent": true,
+          "otherRuleAbsent": true,
+          "ownHistoryPresent": true,
+          "otherHistoryAbsent": true,
+          "requestIsResumeCheck": true,
+          "tools": [
+            "edit",
+            "read",
+            "write"
+          ],
+          "toolsMatch": true,
+          "responseTools": [],
+          "resumedAnswerContainsOriginalMarker": true
+        }
+      ]
+    },
+    {
+      "id": "01a18610-cf1d-7000-a3ec-389bd3664222",
+      "preset": "review-b",
+      "historyFiles": [
+        "2026-10-29T05-10-10-975Z_01a18610-cf1d-7000-a3ec-389bd3664222.jsonl"
+      ],
+      "tools": [
+        "read",
+        "ls"
+      ],
+      "changes": [],
+      "requests": [
+        {
+          "id": "01a18611-8c25-7000-899e-2c84c7d1969c",
+          "status": "toolUse",
+          "http": [
+            200
+          ],
+          "durationMs": 1965,
+          "provider": "opencode-go",
+          "model": "deepseek-v4.1-flash",
+          "effort": "max",
+          "expectedRulePresent": true,
+          "otherRuleAbsent": true,
+          "ownHistoryPresent": true,
+          "otherHistoryAbsent": true,
+          "requestIsResumeCheck": false,
+          "tools": [
+            "ls",
+            "read"
+          ],
+          "toolsMatch": true,
+          "responseTools": [
+            "ls"
+          ]
+        },
+        {
+          "id": "01a18611-98c3-7000-9254-dd1c8d6d6884",
+          "status": "toolUse",
+          "http": [
+            200
+          ],
+          "durationMs": 2639,
+          "provider": "opencode-go",
+          "model": "deepseek-v4.1-flash",
+          "effort": "max",
+          "expectedRulePresent": true,
+          "otherRuleAbsent": true,
+          "ownHistoryPresent": true,
+          "otherHistoryAbsent": true,
+          "requestIsResumeCheck": false,
+          "tools": [
+            "ls",
+            "read"
+          ],
+          "toolsMatch": true,
+          "responseTools": [
+            "read",
+            "read"
+          ]
+        },
+        {
+          "id": "01a18611-a684-7000-85ba-c98157cf231f",
+          "status": "stop",
+          "http": [
+            200
+          ],
+          "durationMs": 10099,
+          "provider": "opencode-go",
+          "model": "deepseek-v4.1-flash",
+          "effort": "max",
+          "expectedRulePresent": true,
+          "otherRuleAbsent": true,
+          "ownHistoryPresent": true,
+          "otherHistoryAbsent": true,
+          "requestIsResumeCheck": false,
+          "tools": [
+            "ls",
+            "read"
+          ],
+          "toolsMatch": true,
+          "responseTools": []
+        }
+      ]
+    }
+  ],
+  "independentChecks": {
+    "baseline": {
+      "total": 45,
+      "passed": 42,
+      "failed": 3
+    },
+    "afterModelFix": {
+      "total": 45,
+      "passed": 45,
+      "failed": 0
+    },
+    "agentWrittenRegressionExit": 0,
+    "agentWrittenRegressionOutput": "escape-string-regexp regression tests passed",
+    "fileChangesAfterReadOnlyBAndResumedA": []
+  },
+  "artifactCredentialAudit": {
+    "scannedFiles": 86,
+    "exactKeyMatches": 0,
+    "includesSQLiteBytes": true,
+    "rawCredentialFileExcluded": true
+  },
+  "boundaries": {
+    "hotPresetHandoffImplemented": false,
+    "nativeCommandIsolationRetested": false,
+    "macOSRetested": false,
+    "humanAccepted": false,
+    "separateCredentials": false,
+    "mcpExercised": false
+  }
+}

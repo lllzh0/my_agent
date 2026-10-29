@@ -216,6 +216,7 @@ export async function fixture(homeInsideWorkspace = false) {
 		async run(
 			options: {
 				preset?: string;
+				prepared?: boolean;
 				light?: boolean;
 				approve?: boolean | "connect";
 				plan?: boolean;

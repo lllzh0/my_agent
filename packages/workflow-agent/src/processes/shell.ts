@@ -1,6 +1,6 @@
 import * as path from "node:path";
 import { getShellArgs } from "@oh-my-pi/pi-utils/procmgr";
-import { quote } from "shell-quote";
+export * from "./quote";
 
 export interface CommandInvocation {
 	argv: string[];
@@ -33,11 +33,4 @@ export function commandScript(command: string): string {
 export function commandInvocation(command: string): CommandInvocation {
 	const shell = productShell();
 	return { argv: [shell.exe, ...shell.args, commandScript(command)] };
-}
-
-/** Quote literal argv for the selected product shell; never use POSIX quoting in PowerShell. */
-export function quoteCommand(argv: string[]): string {
-	return process.platform === "win32"
-		? `& ${argv.map(value => `'${value.replaceAll("'", "''")}'`).join(" ")}`
-		: quote(argv);
 }

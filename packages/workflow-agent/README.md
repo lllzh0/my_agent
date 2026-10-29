@@ -1,12 +1,12 @@
 # My Agent · OMP 入口
 
-面向编程与资料研究的产品入口，使用当前 fork 内的 OMP SDK 和终端界面。当前版本是 **0.2.0、本地源码试用版**。它已迁入显式资源、受控工具、研究来源、后台任务、直接文本恢复和 MCP 外部工具接入；完整工作流预设切换与 GUI 尚未实现。
+面向编程与资料研究的产品入口，使用当前 fork 内的 OMP SDK 和终端界面。当前版本是 **0.2.0、本地源码试用版**。已提供显式资源、受控工具、研究来源、后台任务、直接文本恢复、MCP 与预设终端交接；GUI 尚未接入。
 
 本地 `main` 保持单 agent；多角色协作保留在独立分支，当前源码未发布。
 
 2026-10-28 增量：编辑审批使用共享差异预览，命令结果显示状态和日志首尾；命名预设使用独立会话及 SDK 目录，资源清单在启动时冻结。启动版历史证据见 [验证记录](../../docs/verification/batches-1-3-2026-10-28.md)。
 
-2026-10-29 管理增量：输入 `/preset`，或在 `/agent` 选择“预设管理”，可创建/复制、编辑草稿、选择资源、检查并预览保存。`/preset edit work` 直接编辑；CLI `preset copy work work-lite` 复制，`preset bind work` 设置当前工作区默认，`preset default work` 设置全局默认。保存只影响后续启动，旧会话按原预设恢复；运行中切换尚未开放。没有真实密钥时可使用 --demo 编辑。完整用法见 [工作流预设](../../docs/workflow-agent-presets.md)。
+2026-10-29 增量：`/preset` 管理草稿、资源和默认；`/preset use work [--new]` 在同一终端准备并切换独立会话，`/resume` 可跨预设选择旧历史。忙碌时拒绝，准备时可取消，失败尝试恢复原会话；没有真实密钥可用 --demo。Win/Mac 共用源码，本轮交接实机与真实 Go / DeepSeek max 验收在 Windows；Mac、全量 Windows 回归和原生命令隔离仍有缺口。见 [用法](../../docs/workflow-agent-presets.md) 和 [批次 3 证据](../../docs/verification/batch3-terminal-handoff-2026-10-29.md)。
 
 第一阶段面向有一定编程基础的 TUI 使用者，允许编辑配置、设置环境变量。已接入 OMP 原生会话选择器，可在启动后用 `/resume` 恢复当前工作区旧会话；不要求完整配置向导。最新验收范围见 [TUI 范围修订](../../docs/workflow-agent-phase1-scope.md)。
 

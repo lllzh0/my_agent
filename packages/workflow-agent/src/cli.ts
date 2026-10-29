@@ -21,6 +21,10 @@ import { classifyError, ModelRequestError } from "./diagnostics/errors";
 import type { ApprovalMode } from "./policy/policy";
 import { resolvePreset } from "./presets/presets";
 import { CLI_OPTIONS } from "./cli-options";
+import { HandoffConnection } from "./presets/handoff-client";
+import { postmortem } from "@oh-my-pi/pi-utils";
+
+const launcherToken = process.env.MY_AGENT_HANDOFF_TOKEN;
 
 async function run(): Promise<void> {
 	const { values, positionals } = parseArgs({
@@ -30,6 +34,9 @@ async function run(): Promise<void> {
 	if (values.help) {
 		process.stdout.write(
 			"My Agent 0.2.0 · OMP\n编程与资料研究\n\n用法：bun run agent [setup|doctor|diagnose|restore-config] [选项]\n  setup --defaults       保存默认模型与搜索配置，不发送请求\n  doctor                 检查配置和运行依赖，不发送请求\n  diagnose               预览脱敏诊断 JSON，不发送请求\n  diagnose --output 文件 保存诊断到新文件，不覆盖已有文件\n  --demo                 本地模拟回答，不调用真实服务\n  --preset ID            按命名清单启动独立预设\n  preset list/create/copy/show/check/bind/unbind/default  管理预设\n  preset default --clear  清除全局默认\n  /preset                终端内创建、编辑和选择资源；下次启动生效\n  --light                不加载工作流资源和工具\n  --ui ink|classic       墨线界面（默认）或经典界面\n  --print --prompt 文本  输出一次回答；副作用默认拒绝\n  --home 路径            独立配置和会话目录\n  --cwd 路径             工作目录\n  --resume 会话文件      恢复当前配置目录内的 OMP 产品会话\n  --permissions 模式     manual 手动、auto 自动、full 完整授权；仅本次启动\n\n终端主菜单 /agent；计划模式 /agent-plan。配置修改在重启后生效。\n模型凭据：OPENCODE_API_KEY；搜索凭据：TAVILY_API_KEY。\n",
+		);
+		process.stdout.write(
+			"预设交接：/preset use ID [--new]；/resume 可跨预设选择历史。忙碌时拒绝，准备时 Esc 取消。\n",
 		);
 		return;
 	}
@@ -124,6 +131,13 @@ async function run(): Promise<void> {
 	await fs.mkdir(home, { recursive: true, mode: 0o700 });
 	if (!values.demo && !process.env[config.model.apiKeyEnv])
 		throw new Error(`模型未配置，请在终端设置 ${config.model.apiKeyEnv}；--demo 可离线试用`);
+	const handoffToken = process.env.MY_AGENT_HANDOFF_TOKEN;
+	const preparing = process.env.MY_AGENT_HANDOFF_PREPARE === "1";
+	const startPlan = process.env.MY_AGENT_HANDOFF_PLAN === "1";
+	delete process.env.MY_AGENT_HANDOFF_TOKEN;
+	delete process.env.MY_AGENT_HANDOFF_PREPARE;
+	delete process.env.MY_AGENT_HANDOFF_PLAN;
+	const handoff = handoffToken && process.send ? new HandoffConnection(handoffToken) : undefined;
 	const host = await openHost({
 		home,
 		cwd,
@@ -133,6 +147,13 @@ async function run(): Promise<void> {
 		interactive: !values.print,
 		permissions,
 		preset: values.preset,
+		plan: startPlan,
+		prepared: preparing,
+		onAllocated:
+			handoff && preparing
+				? (id, file) =>
+						handoff.send({ type: "allocated", session: { id, resume: file, preset: values.preset ?? "legacy" } })
+				: undefined,
 	});
 	// CLI prompts enter the SDK directly rather than passing the TUI input hook.
 	if (values.prompt) host.state.policy.setUserTask(values.prompt);
@@ -158,6 +179,16 @@ async function run(): Promise<void> {
 			await host.dispose();
 		}
 	} else {
+		if (preparing && handoff) {
+			try {
+				await handoff.prepare(host);
+				await host.activate();
+			} catch (error) {
+				await host.dispose();
+				handoff.finish(error);
+				throw error;
+			}
+		}
 		const mode = new InteractiveMode(
 			host.session,
 			"My Agent 0.2.0 / OMP 18.10.3",
@@ -181,6 +212,8 @@ async function run(): Promise<void> {
 			return drafts.switch(() => mode.handleResumeSession(target, { keepModel: true }));
 		});
 		const ink = values.ui === "classic" ? undefined : new InkShell(mode, host.state);
+		const handoffClosed = Promise.withResolvers<void>();
+		let closeError: unknown;
 		const unsubscribeResources = host.session.subscribeCommandMetadataChanged(() =>
 			mode.setSlashCommandCatalog(productCommandCatalog(host.state)),
 		);
@@ -209,6 +242,10 @@ async function run(): Promise<void> {
 									)
 								: false,
 					});
+					if (preparing) {
+						mode.cancelGoalContinuation();
+						await host.session.goalRuntime.pauseGoal();
+					}
 					mode.addAutocompleteProvider(current =>
 						createSkillAutocompleteProvider(current, () => host.state.resources.skills),
 					);
@@ -216,15 +253,44 @@ async function run(): Promise<void> {
 				},
 				host.closed,
 			);
+			host.state.snapshotWritable = true;
+			handoff?.attach(
+				host,
+				cancel => {
+					mode.showStatus("正在准备预设，输入已冻结；Esc 取消。");
+					const release = mode.ui.addInputListener(data => {
+						if (data === "\u001b") cancel();
+						return { consume: true };
+					});
+					return () => {
+						mode.ui.terminal.discardPendingInput?.();
+						release();
+						mode.showStatus("交接未完成，原会话已保留。");
+					};
+				},
+				() => handoffClosed.resolve(),
+			);
 			if (values.prompt) await host.session.prompt(values.prompt);
-			await runProductInputLoop(mode, host.session, host.closed);
+			await runProductInputLoop(mode, host.session, Promise.race([host.closed, handoffClosed.promise]));
 		} finally {
 			ink?.dispose();
 			unsubscribeResources();
 			process.removeListener("SIGTERM", shutdown);
-			mode.stop();
-			await host.dispose();
+			try {
+				if (handoff?.committed) await mode.closeForHandoff();
+				else mode.stop();
+			} catch (error) {
+				closeError = error;
+			}
+			try {
+				await host.dispose();
+			} catch (error) {
+				closeError ??= error;
+			}
+			handoff?.finish(closeError);
 		}
+		if (closeError) throw closeError;
+		if (handoff?.committed) await postmortem.quit(0);
 	}
 }
 
@@ -235,4 +301,15 @@ try {
 	const diagnostic = classifyError(error);
 	process.stderr.write(`[${diagnostic.category}] ${diagnostic.hint}\n`);
 	process.exitCode = 1;
+	if (launcherToken) {
+		if (process.connected && process.send)
+			process.send({
+				version: 1,
+				token: launcherToken,
+				type: "failed",
+				error: String(redact(error instanceof Error ? error.message : String(error))).slice(0, 1900),
+			});
+		process.disconnect?.();
+		await postmortem.quit(1);
+	}
 }

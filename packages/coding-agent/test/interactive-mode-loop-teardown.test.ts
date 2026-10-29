@@ -66,6 +66,13 @@ describe("InteractiveMode shutdown during a loop condition gate", () => {
 		resetSettingsForTest();
 	});
 
+	it("releases the embedded terminal and session without exiting the launcher during handoff", async () => {
+		await mode.closeForHandoff();
+		expect(session.isDisposed).toBe(true);
+		expect(postmortem.quit).not.toHaveBeenCalled();
+		await expect(mode.closeForHandoff()).rejects.toThrow("already closing");
+	});
+
 	it("aborts the in-flight condition and cancels auto-submit before disposing the session", async () => {
 		vi.useFakeTimers();
 		const pending = Promise.withResolvers<LoopConditionVerdict>();
