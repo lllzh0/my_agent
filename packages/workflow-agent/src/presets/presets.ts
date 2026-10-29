@@ -1,5 +1,6 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
+import { contained } from "../policy/paths";
 import { normalizeProfileName } from "@oh-my-pi/pi-utils/profile-name";
 import type { Config } from "../config/config";
 import { digest, readJson, record } from "../storage";
@@ -141,7 +142,7 @@ export async function readPreset(home: string, id: string): Promise<PresetDefini
 	return value;
 }
 
-async function resourcePath(entry: PresetPath, home: string, cwd: string, id: string): Promise<string> {
+export async function presetResourcePath(entry: PresetPath, home: string, cwd: string, id: string): Promise<string> {
 	if (entry.base === "absolute") {
 		if (!path.isAbsolute(entry.path)) throw new Error("absolute 资源必须使用绝对路径");
 		return fs.realpath(entry.path);
@@ -149,15 +150,24 @@ async function resourcePath(entry: PresetPath, home: string, cwd: string, id: st
 	if (path.isAbsolute(entry.path)) throw new Error("相对资源不能使用绝对路径");
 	const root = await fs.realpath(entry.base === "workspace" ? cwd : path.join(home, "presets", id));
 	const target = await fs.realpath(path.resolve(root, entry.path));
-	const relative = path.relative(root, target);
-	if (path.isAbsolute(relative) || relative === ".." || relative.startsWith(`..${path.sep}`))
-		throw new Error("预设资源超出声明的根目录");
+	if (!contained(root, target)) throw new Error("预设资源超出声明的根目录");
 	return target;
 }
 
 /** Compile references only; this never contacts a model or starts an MCP server. */
 export async function resolvePreset(home: string, cwd: string, id: string, base: Config): Promise<ResolvedPreset> {
-	const definition = await readPreset(home, id);
+	return compilePreset(home, cwd, await readPreset(home, id), base);
+}
+
+/** Check an unsaved definition through the same compiler used at startup. */
+export async function compilePreset(
+	home: string,
+	cwd: string,
+	input: PresetDefinition,
+	base: Config,
+): Promise<ResolvedPreset> {
+	const definition = validatePreset(input);
+	const id = definition.id;
 	const config = structuredClone(base);
 	const candidates = [base.model, ...(base.models ?? [])];
 	const selected = definition.model ?? {
@@ -180,7 +190,7 @@ export async function resolvePreset(home: string, cwd: string, id: string, base:
 	};
 	for (const kind of ["instructions", "skills", "appendSystem"] as const)
 		config.resources[kind] = await Promise.all(
-			definition.resources[kind].map(entry => resourcePath(entry, home, cwd, id)),
+			definition.resources[kind].map(entry => presetResourcePath(entry, home, cwd, id)),
 		);
 	for (const file of [...config.resources.instructions, ...config.resources.appendSystem])
 		if (!(await fs.stat(file)).isFile()) throw new Error(`预设指令必须是文件：${file}`);

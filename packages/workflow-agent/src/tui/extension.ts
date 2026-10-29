@@ -107,9 +107,14 @@ export function productExtension(
 			}
 			if (
 				event.source === "extension" &&
-				["model", "review", "resources", "agent", "trace"].includes(parseProductCommand(event.text)?.name ?? "")
+				["model", "review", "resources", "agent", "trace", "preset"].includes(
+					parseProductCommand(event.text)?.name ?? "",
+				)
 			) {
-				ctx.ui.notify("资源开关、产品菜单、轨迹记录、模型连接和独立代码审查只能由用户主动调用。", "error");
+				ctx.ui.notify(
+					"资源开关、预设管理、产品菜单、轨迹记录、模型连接和独立代码审查只能由用户主动调用。",
+					"error",
+				);
 				return { handled: true };
 			}
 			if (state.sessions?.busy || state.sessions?.closed) {
@@ -210,6 +215,7 @@ export function productExtension(
 			approvalContext = ctx;
 			const choice = await ctx.ui.select("My Agent", [
 				"实际资源与工具",
+				"预设管理",
 				"修改资源选择",
 				"模型请求轨迹",
 				"权限状态",
@@ -227,7 +233,9 @@ export function productExtension(
 					resources: state.resources.entries,
 					tools: api.getActiveTools(),
 				});
-			else if (choice === "修改资源选择") {
+			else if (choice === "预设管理") {
+				await handleProductCommand("/preset", state, ctx, api, getSession);
+			} else if (choice === "修改资源选择") {
 				try {
 					await resourcesFromCommand(state, ctx);
 				} catch (error) {

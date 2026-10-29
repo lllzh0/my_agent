@@ -29,7 +29,7 @@ async function run(): Promise<void> {
 	});
 	if (values.help) {
 		process.stdout.write(
-			"My Agent 0.2.0 · OMP\n编程与资料研究\n\n用法：bun run agent [setup|doctor|diagnose|restore-config] [选项]\n  setup --defaults       保存默认模型与搜索配置，不发送请求\n  doctor                 检查配置和运行依赖，不发送请求\n  diagnose               预览脱敏诊断 JSON，不发送请求\n  diagnose --output 文件 保存诊断到新文件，不覆盖已有文件\n  --demo                 本地模拟回答，不调用真实服务\n  --preset ID            按命名清单启动独立预设\n  preset list/create/show/check  管理清单（create 支持 --template）\n  --light                不加载工作流资源和工具\n  --ui ink|classic       墨线界面（默认）或经典界面\n  --print --prompt 文本  输出一次回答；副作用默认拒绝\n  --home 路径            独立配置和会话目录\n  --cwd 路径             工作目录\n  --resume 会话文件      恢复当前配置目录内的 OMP 产品会话\n  --permissions 模式     manual 手动、auto 自动、full 完整授权；仅本次启动\n\n终端主菜单 /agent；计划模式 /agent-plan。配置修改在重启后生效。\n模型凭据：OPENCODE_API_KEY；搜索凭据：TAVILY_API_KEY。\n",
+			"My Agent 0.2.0 · OMP\n编程与资料研究\n\n用法：bun run agent [setup|doctor|diagnose|restore-config] [选项]\n  setup --defaults       保存默认模型与搜索配置，不发送请求\n  doctor                 检查配置和运行依赖，不发送请求\n  diagnose               预览脱敏诊断 JSON，不发送请求\n  diagnose --output 文件 保存诊断到新文件，不覆盖已有文件\n  --demo                 本地模拟回答，不调用真实服务\n  --preset ID            按命名清单启动独立预设\n  preset list/create/copy/show/check/bind/unbind/default  管理预设\n  preset default --clear  清除全局默认\n  /preset                终端内创建、编辑和选择资源；下次启动生效\n  --light                不加载工作流资源和工具\n  --ui ink|classic       墨线界面（默认）或经典界面\n  --print --prompt 文本  输出一次回答；副作用默认拒绝\n  --home 路径            独立配置和会话目录\n  --cwd 路径             工作目录\n  --resume 会话文件      恢复当前配置目录内的 OMP 产品会话\n  --permissions 模式     manual 手动、auto 自动、full 完整授权；仅本次启动\n\n终端主菜单 /agent；计划模式 /agent-plan。配置修改在重启后生效。\n模型凭据：OPENCODE_API_KEY；搜索凭据：TAVILY_API_KEY。\n",
 		);
 		return;
 	}

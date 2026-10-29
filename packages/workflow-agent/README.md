@@ -4,7 +4,9 @@
 
 本地 `main` 保持单 agent；多角色协作保留在独立分支，当前源码未发布。
 
-2026-10-28 增量：编辑审批可查看片段差异和只读滚动详情，返回后仍须批准；命令结果显示退出码和短输出，Ctrl+O 展开更多。新增启动预设最小版：`bun run agent preset create work --template coding` 创建清单，`preset check work` 检查引用，`--preset work` 启动；内置 `chat` 和 `bare`。命名预设使用独立会话和 SDK 目录，首批资源清单在启动时冻结；`/preset show` 查看实际状态。运行中跨预设切换、默认绑定和完整编辑器仍未实现。用法及边界见 [工作流预设](../../docs/workflow-agent-presets.md)，本批验证见 [验证记录](../../docs/verification/batches-1-3-2026-10-28.md)。
+2026-10-28 增量：编辑审批使用共享差异预览，命令结果显示状态和日志首尾；命名预设使用独立会话及 SDK 目录，资源清单在启动时冻结。启动版历史证据见 [验证记录](../../docs/verification/batches-1-3-2026-10-28.md)。
+
+2026-10-29 管理增量：输入 `/preset`，或在 `/agent` 选择“预设管理”，可创建/复制、编辑草稿、选择资源、检查并预览保存。`/preset edit work` 直接编辑；CLI `preset copy work work-lite` 复制，`preset bind work` 设置当前工作区默认，`preset default work` 设置全局默认。保存只影响后续启动，旧会话按原预设恢复；运行中切换尚未开放。没有真实密钥时可使用 --demo 编辑。完整用法见 [工作流预设](../../docs/workflow-agent-presets.md)。
 
 第一阶段面向有一定编程基础的 TUI 使用者，允许编辑配置、设置环境变量。已接入 OMP 原生会话选择器，可在启动后用 `/resume` 恢复当前工作区旧会话；不要求完整配置向导。最新验收范围见 [TUI 范围修订](../../docs/workflow-agent-phase1-scope.md)。
 
@@ -216,7 +218,7 @@ MY_AGENT_SANDBOX_TEST=1 bun test packages/workflow-agent/test
 
 此前 macOS 干净源码副本已用独立 HOME 和空 Bun 缓存跑通 `agent:prepare`、setup、doctor、diagnose、离线问答及命令恢复；删除源码副本后，独立用户目录中的配置和会话仍保留。本轮 Windows 准备及失败边界见 [批次 1 验证](../../docs/verification/batch1-cross-platform-2026-10-29.md)。这些证据不代表独立安装包、升级迁移或真实模型任务验收。
 
-入口迁移证据见 [迁移记录](../../docs/workflow-agent-migration.md)，后续 MCP 证据见 [MCP 记录](../../docs/workflow-agent-mcp.md)，最新结果见 [本地交付与验证](../../docs/workflow-agent-delivery.md)。Win/Mac 源码运行、共享 UI、预设启动隔离和有限真实模型链路已有证据。仍待预设编辑与运行中切换、Windows 隔离 stdio MCP、Tavily/复杂业务验收、其他架构、独立分发、GUI 及六项任务的用户接受；逐项状态见交付说明。
+入口迁移证据见 [迁移记录](../../docs/workflow-agent-migration.md)，后续 MCP 证据见 [MCP 记录](../../docs/workflow-agent-mcp.md)，最新结果见 [本地交付与验证](../../docs/workflow-agent-delivery.md)。Win/Mac 原有运行与隔离、共享 UI、预设管理和有限真实模型链路已有分项证据。新增编辑界面的 Mac 实机复验、运行中切换、Windows 隔离修复/stdio MCP、Tavily/复杂业务、其他架构、独立分发、GUI 与用户接受仍分别保留；逐项状态见交付说明。
 
 
 ## 模型、新会话、差异审查和 MCP 证据

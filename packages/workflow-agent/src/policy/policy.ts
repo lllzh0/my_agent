@@ -1,12 +1,14 @@
 import * as fs from "node:fs/promises";
 const { realpath, lstat } = fs;
 import * as path from "node:path";
-const { resolve, dirname, basename, relative, isAbsolute, join } = path;
+const { resolve, dirname, basename, join } = path;
 const { parse: parseWindowsPath } = path.win32;
 import { digest, redact } from "../storage.ts";
 import { untilAborted } from "@oh-my-pi/pi-utils";
 import { highRiskReason } from "./risk";
 import { isWindowsReservedName } from "@oh-my-pi/pi-utils/profile-name";
+import { contained } from "./paths";
+export * from "./paths";
 
 export interface Request {
 	tool: string;
@@ -52,11 +54,6 @@ export async function canonicalPath(path: string): Promise<string> {
 		}
 		return join(await canonicalPath(parent), basename(path));
 	}
-}
-
-export function contained(root: string, path: string): boolean {
-	const child = relative(root, path);
-	return !isAbsolute(child) && child !== ".." && !child.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`);
 }
 
 /** Only a selected skill directory can reopen reads inside the protected app home. */

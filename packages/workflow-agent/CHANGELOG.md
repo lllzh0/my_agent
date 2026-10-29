@@ -11,6 +11,9 @@
 
 ### Added
 
+- Win/Mac 共用预设草稿编辑、显式资源选择、差异预览和检查；取消不写盘，并发编辑拒绝覆盖，复制只保留定义和资源引用。
+- 工作区绑定与全局默认只影响后续启动；恢复旧会话按原预设归属路由，不受新默认覆盖；模型不能触发预设管理。
+
 - 新增原生 Windows 组件准备、PowerShell 命令、本地 MCP 和进程树取消，Windows alpha 沙箱可通过 `agent:sandbox install/status` 单独安装与检查。
 - 真实 Windows 隔离验收后修复 ACL 范围与启动器环境，保护 `env.local`；本机隔离 stdin 尚不可用，普通权限在启动前拒绝本地 MCP，保留 HTTP MCP 与显式 full 路径。
 - 支持 `--preset`、`preset list/create/show/check` 和 `/preset show`，按清单选择资源并隔离会话；命名预设首批在启动时冻结，切换需重启。

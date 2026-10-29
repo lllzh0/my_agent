@@ -2,9 +2,10 @@
 import * as os from "node:os";
 import * as path from "node:path";
 import { parseArgs } from "node:util";
-import { presetId, readPreset } from "./presets/presets";
+import { readPreset } from "./presets/presets";
 import { presetCommand } from "./presets/cli";
 import { CLI_OPTIONS } from "./cli-options";
+import { launchPreset } from "./presets/defaults";
 
 // The SDK caches directories during module initialization. Keep this process
 // free of SDK imports and give the session child its owned paths up front.
@@ -12,7 +13,7 @@ try {
 	const { values, positionals } = parseArgs({
 		strict: false,
 		allowPositionals: true,
-		options: { ...CLI_OPTIONS, template: { type: "string" } },
+		options: { ...CLI_OPTIONS, template: { type: "string" }, clear: { type: "boolean" } },
 	});
 	const cwd = path.resolve(typeof values.cwd === "string" ? values.cwd : (process.env.MY_AGENT_CWD ?? process.cwd()));
 	const home = path.resolve(
@@ -23,11 +24,17 @@ try {
 	if (positionals[0] === "preset") {
 		if (values.preset || values.light) throw new Error("预设管理命令不与 --preset 或 --light 混用");
 		process.stdout.write(
-			`${JSON.stringify(await presetCommand(home, cwd, positionals.slice(1), typeof values.template === "string" ? values.template : undefined), null, 2)}\n`,
+			`${JSON.stringify(await presetCommand(home, cwd, positionals.slice(1), typeof values.template === "string" ? values.template : undefined, values.clear === true), null, 2)}\n`,
 		);
 		process.exit(0);
 	}
-	const selectedPreset = typeof values.preset === "string" ? presetId(values.preset) : undefined;
+	const selectedPreset = await launchPreset(home, cwd, {
+		preset: typeof values.preset === "string" ? values.preset : undefined,
+		resume: typeof values.resume === "string" ? values.resume : undefined,
+		light: values.light === true,
+		help: values.help === true,
+		command: positionals[0],
+	});
 	if (selectedPreset && values.light) throw new Error("--preset 与 --light 不能同时使用");
 	if (selectedPreset && selectedPreset !== "legacy" && ["setup", "restore-config"].includes(positionals[0]))
 		throw new Error("共享配置管理请在不带 --preset 的入口执行。");
@@ -36,7 +43,12 @@ try {
 		selectedPreset && selectedPreset !== "legacy"
 			? path.join(home, "omp", "presets", selectedPreset)
 			: path.join(home, "omp");
-	const child = Bun.spawn([process.execPath, path.join(import.meta.dir, "cli.ts"), ...process.argv.slice(2)], {
+	const childArgs = process.argv.slice(2);
+	if (selectedPreset && !values.preset) {
+		const separator = childArgs.indexOf("--");
+		childArgs.splice(separator < 0 ? childArgs.length : separator, 0, "--preset", selectedPreset);
+	}
+	const child = Bun.spawn([process.execPath, path.join(import.meta.dir, "cli.ts"), ...childArgs], {
 		cwd,
 		stdin: "inherit",
 		stdout: "inherit",

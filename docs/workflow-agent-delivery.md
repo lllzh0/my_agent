@@ -26,7 +26,7 @@ Windows 命令隔离还需单独的系统安装，见 [Windows 使用说明](wor
 | 编辑审批、命令结果、输入与恢复 | 已实现；[共享 UI 记录](verification/approval-command-ui-2026-10-28.md)、[macOS 终端验收](verification/mac-preset-2026-10-28.md) |
 | 文件格式、撤销、摘要及压缩队列 | 已回移并审查；Mac 产品 359 pass / 16 skip / 0 fail，见 [稳定性验收](verification/upstream-stability-2026-10-28.md) |
 | Windows 最新回归与准备 | 专项 99 pass、宿主筛选 7 pass；空缓存完整 prepare、离线启动和 check 通过；真实隔离初始化仍失败，见 [批次 1 验证](verification/batch1-cross-platform-2026-10-29.md) |
-| 预设启动与隔离 | 已实现 list/create/show/check、实际资源展示、独立历史及冷恢复；[使用方式](workflow-agent-presets.md) |
+| 预设启动、管理与隔离 | 已实现草稿编辑/资源选择/复制、检查与默认绑定，保持独立历史和冷恢复；[使用方式](workflow-agent-presets.md)、[批次 2 证据](verification/batch2-preset-management-2026-10-29.md) |
 | 真实模型 | 已有 OpenCode Go / DeepSeek V4.1 Flash max 最小命令链和辅助式代码任务；[Windows 记录](verification/windows-2026-10-28.md)、[代码任务](workflow-agent-real-code-acceptance.md) |
 | 研究服务 | 内置 Tavily 路径及 HTTP MCP 已实现；Exa 曾有真实来源链验证，Tavily 真实账号/研究质量仍待验收 |
 
@@ -35,7 +35,7 @@ Windows 命令隔离还需单独的系统安装，见 [Windows 使用说明](wor
 ## 下一步
 
 - 先修复本机 Windows 原生初始化的锁文件拒绝访问，重跑真实隔离验收；详见批次 1 记录。
-- 预设编辑/复制和默认绑定，再做空闲进程交接与失败回退。
+- 批次 3：空闲进程交接、清理与失败回退；本批预设编辑界面的 Mac 实机复验另行补齐。
 - Windows 本地 MCP 隔离能力修复；Mac 新准备参数的真实新目录复验、其余硬件架构验收。
 - 六项真实任务的用户试用、Tavily 与长期/断网/限流验证，见 [任务验收](workflow-agent-acceptance.md)。
 - GUI、独立安装包和升级迁移另行处理。

@@ -18,14 +18,15 @@ import { reviewFromCommand } from "./review";
 import { resourcesFromCommand } from "./resources";
 import { resourceDisabled } from "../runtime/resources";
 import { traceFromCommand } from "./trace";
+import { presetFromCommand } from "./presets";
 
 const commands: SlashCommand[] = [
 	{ name: "help", description: "显示当前产品支持的命令" },
 	{ name: "agent", description: "打开产品主菜单" },
 	{
 		name: "preset",
-		description: "查看本会话预设及实际资源；切换使用启动参数",
-		argumentHint: "[show]",
+		description: "管理预设草稿、复制、资源和下次启动默认",
+		argumentHint: "[show|edit|create|copy|bind|default|defaults] [ID]",
 		allowArgs: true,
 	},
 	{ name: "context", description: "查看上下文用量和已加载资源" },
@@ -241,17 +242,17 @@ export async function handleProductCommand(
 	try {
 		switch (command.name) {
 			case "preset":
-				if (args && args !== "show")
-					throw new Error("本批支持 /preset [show]；切换预设请退出后以 --preset <ID> 启动。");
-				await showProductData(ctx, "当前预设与实际生效内容", {
-					preset: state.preset ?? { id: "legacy" },
-					light: state.light,
-					tools: session.getActiveToolNames(),
-					resources: state.resources.entries,
-					model: state.models?.current(),
-					mcp: state.mcp.status(),
-					sessionDirectory: state.sessionDirectory,
-				});
+				await presetFromCommand(state, ctx, args, ensureIdle, () =>
+					showProductData(ctx, "当前预设与实际生效内容", {
+						preset: state.preset ?? { id: "legacy" },
+						light: state.light,
+						tools: session.getActiveToolNames(),
+						resources: state.resources.entries,
+						model: state.models?.current(),
+						mcp: state.mcp.status(),
+						sessionDirectory: state.sessionDirectory,
+					}),
+				);
 				break;
 			case "resources":
 				await resourcesFromCommand(state, ctx, args);
