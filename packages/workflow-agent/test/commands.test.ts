@@ -123,9 +123,9 @@ test("basic information commands show product state without calling the model or
 		expect(help).toContain("/redo");
 		expect(help).toContain("/undo");
 		expect(help).not.toContain("/reload-plugins");
-		const tools = run.result.displays.find((item: { title: string }) => item.title === "工具与资源").text;
-		expect(tools).toContain('"write"');
-		expect(tools).not.toContain('"eval"');
+		const tools = run.result.displays.find((item: { title: string }) => item.title === "工具状态 · 只读").text;
+		expect(tools).toMatch(/基线启用[^\n]*write/);
+		expect(tools).not.toMatch(/(?:基线启用|临时启用|关闭)[^\n]*eval/);
 		expect(run.result.displays.some((item: { title: string }) => item.title === "上下文")).toBe(true);
 		expect(run.result.displays.some((item: { title: string }) => item.title === "本地用量")).toBe(true);
 		expect(run.result.notifications.filter((text: string) => text.includes("用法"))).toHaveLength(3);

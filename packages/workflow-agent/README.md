@@ -81,6 +81,8 @@ OpenCode Go 要求的 `x-opencode-session` 已由 OMP 自动附加：同一会�
 
 使用 `/resources` 或 `/agent` → “修改资源选择” 热切换工具、技能、指令文件及附加提示词，也可添加文件或技能目录。命令和限制见 [通用资源开关](../../docs/workflow-agent-resource-switches.md)。
 
+预设中临时缺少工具时，使用 `/tools` 管理运行期授权，或让模型通过 `request_tool` 提交具体调用，由你选择“仅此次调用”或“本次Agent运行有效”。临时授权保存在内存，重启或切换预设后清空；目录、联网、计划模式和具体操作审批仍生效。参见 [临时工具用法](../../docs/workflow-agent-presets.md#临时使用预设未启用的工具)。
+
 从其他 agent 复用技能：打开 `/resources` → “导入外部技能”，选择常见来源或自定义目录，逐项勾选、预览，再选复制或软链接。默认不勾选；同目录或同名冲突会跳过。导入到 `<配置目录>/skills` 后立即启用，也可随时从资源菜单关闭。完整用法见 [外部技能与模型请求轨迹](../../docs/workflow-agent-zcode-reuse.md)。
 
 配置的 `resources` 部分例如：

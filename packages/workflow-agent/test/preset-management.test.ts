@@ -13,7 +13,7 @@ import type { RunState } from "../src/runtime/state";
 import { productExtension } from "../src/tui/extension";
 
 async function fixture() {
-	const root = await fs.mkdtemp(path.join(os.tmpdir(), "preset-management-"));
+	const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "preset-management-")));
 	const home = path.join(root, "home");
 	const cwd = path.join(root, "project");
 	await fs.mkdir(cwd);

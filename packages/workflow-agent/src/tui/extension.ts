@@ -22,6 +22,8 @@ import { chooseApproval } from "./operation-preview";
 import { InkDocument } from "./ink-document";
 import { sanitizeText } from "@oh-my-pi/pi-utils";
 import { saveSessionSnapshot } from "../runtime/session-snapshot";
+import type { ToolAccessApprover } from "../runtime/temporary-tools";
+import { chooseToolAccess } from "./tool-access";
 
 export function productExtension(
 	state: RunState,
@@ -29,12 +31,46 @@ export function productExtension(
 	onShutdown: () => Promise<void>,
 	getSession: () => AgentSession | undefined,
 	isSessionSwitchAllowed: (target: string | undefined) => boolean = () => false,
+	approveTool?: ToolAccessApprover,
 ): ExtensionFactory {
 	return api => {
 		const show = showProductData;
 		let approvalContext: ExtensionContext;
 		api.on("session_start", (_event, ctx) => {
 			approvalContext = ctx;
+			state.toolAccess?.setApprover(
+				approveTool ??
+					(async request => {
+						const current = approvalContext;
+						if (!current.hasUI) return "deny";
+						return chooseToolAccess(
+							request,
+							(title, choices) => current.ui.select(replaceTabs(sanitizeText(title)), choices),
+							async body => {
+								await current.ui.custom<void>(
+									(tui, _theme, _keys, done) =>
+										new InkDocument(
+											"临时工具申请详情 · 返回后仍需批准",
+											body,
+											() => Math.max(5, tui.terminal.rows - 2),
+											() => done(),
+										),
+									{
+										overlay: true,
+										overlayOptions: {
+											fullscreen: true,
+											width: "100%",
+											maxHeight: "100%",
+											margin: 1,
+											mouseTracking: false,
+										},
+										signal: current.signal,
+									},
+								);
+							},
+						);
+					}),
+			);
 			state.policy.setApprover(
 				approve ??
 					(async request => {
@@ -85,8 +121,11 @@ export function productExtension(
 			state.turn = Bun.randomUUIDv7();
 		});
 		api.on("tool_call", event => {
-			if (resourceDisabled(state.config, `tool:${event.toolName}`))
-				return { block: true, reason: "此工具已被用户关闭；只能由用户通过 /resources 重新开启。" };
+			if (
+				resourceDisabled(state.config, `tool:${event.toolName}`) &&
+				!state.toolAccess?.allows(event.toolName, event.input)
+			)
+				return { block: true, reason: "此工具已关闭；可通过 request_tool 申请临时使用，或由用户管理 /tools。" };
 			if (event.toolName !== "goal") return;
 			const input = event.input as { op?: unknown };
 			const goal = getSession()?.getGoalModeState();
@@ -108,7 +147,7 @@ export function productExtension(
 			}
 			if (
 				event.source === "extension" &&
-				["model", "review", "resources", "agent", "trace", "preset"].includes(
+				["model", "review", "resources", "agent", "trace", "preset", "tools"].includes(
 					parseProductCommand(event.text)?.name ?? "",
 				)
 			) {
@@ -198,6 +237,7 @@ export function productExtension(
 		api.on("session_before_branch", cancelTransition);
 		api.on("session_before_tree", cancelTransition);
 		api.on("session_shutdown", async () => {
+			state.toolAccess?.close();
 			const session = getSession();
 			if (session) await saveSessionSnapshot(state, session);
 			await state.liveResources?.close();
@@ -230,8 +270,10 @@ export function productExtension(
 				"文件修改与恢复",
 				"任务进度",
 				"配置位置与迁移范围",
+				"临时工具授权",
 			]);
-			if (choice === "实际资源与工具")
+			if (choice === "临时工具授权") await handleProductCommand("/tools", state, ctx, api, getSession);
+			else if (choice === "实际资源与工具")
 				await show(ctx, "当前生效内容", {
 					light: state.light,
 					resources: state.resources.entries,

@@ -6,6 +6,10 @@ import type { ToolSession } from "@oh-my-pi/pi-coding-agent/tools";
 import type { ClientBridge } from "@oh-my-pi/pi-coding-agent/session/client-bridge";
 import type { ExtensionAPI, ExtensionContext, ToolDefinition } from "@oh-my-pi/pi-coding-agent/sdk";
 import { Type } from "@oh-my-pi/omptype/typebox";
+import { toolWireSchema } from "@oh-my-pi/pi-ai";
+import { TemporaryTools } from "./temporary-tools";
+import { TOOL_ACCESS_NAME } from "./tool-catalog";
+import requestToolDescription from "../prompts/tool-request-tool.md" with { type: "text" };
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import type { RunState } from "./state";
@@ -47,9 +51,13 @@ const renderCommandResult: ToolDefinition["renderResult"] = (output, options) =>
 export function withResourceSwitch(tool: ToolDefinition, state: RunState): ToolDefinition {
 	return {
 		...tool,
-		execute(...args) {
-			if (resourceDisabled(state.config, `tool:${tool.name}`)) throw new Error(`工具已由用户关闭：${tool.name}`);
-			return tool.execute(...args);
+		async execute(...args) {
+			if (resourceDisabled(state.config, `tool:${tool.name}`) && !state.toolAccess?.allows(tool.name, args[1]))
+				throw new Error(`工具已由用户关闭：${tool.name}；可通过 request_tool 申请临时使用。`);
+			const sessionId = state.sessionId;
+			const output = await tool.execute(...args);
+			state.toolAccess?.recordJob(sessionId, tool.name, output);
+			return output;
 		},
 	};
 }
@@ -514,9 +522,46 @@ export function productTools(state: RunState, context: ToolSession): ToolDefinit
 			await state.jobs.stop(input.id);
 			const jobs = state.jobs.list();
 			const job = jobs.find(job => job.id === input.id);
-			return { ...result(jobs), details: { job: job && { ...job, log: state.jobs.output(input.id).text } } };
+			const visible =
+				resourceDisabled(state.config, "tool:job_stop") && !state.toolAccess?.allows("job_stop")
+					? jobs.filter(entry => entry.id === input.id)
+					: jobs;
+			return { ...result(visible), details: { job: job && { ...job, log: state.jobs.output(input.id).text } } };
 		},
 		renderResult: renderCommandResult,
+	});
+	state.toolAccess ??= new TemporaryTools(state, tools);
+	pi.registerTool({
+		name: TOOL_ACCESS_NAME,
+		label: "申请临时使用工具",
+		description: requestToolDescription,
+		parameters: Type.Object({
+			tool: Type.Optional(Type.String()),
+			reason: Type.Optional(Type.String()),
+			arguments: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
+		}),
+		approval: "read",
+		async execute(id, input, signal, update, ctx) {
+			signal?.throwIfAborted();
+			const access = state.toolAccess!;
+			if (!input.tool) {
+				if (input.arguments !== undefined) throw new Error("提交调用时必须指定 tool。");
+				return result(access.list().map(({ parameters: _parameters, description: _description, ...item }) => item));
+			}
+			if (input.arguments === undefined) {
+				const tool = access.list().find(item => item.name === input.tool);
+				if (!tool) throw new Error("此工具不在可申请的产品工具范围内。");
+				return result({ ...tool, parameters: toolWireSchema(tool) });
+			}
+			if (!input.reason?.trim()) throw new Error("申请工具时必须说明 reason。");
+			return access.execute(
+				id,
+				{ tool: input.tool, reason: input.reason, arguments: input.arguments },
+				signal,
+				update,
+				ctx,
+			);
+		},
 	});
 	return tools.map(tool => withResourceSwitch(tool, state));
 }

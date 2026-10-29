@@ -22,6 +22,7 @@ const options = JSON.parse(process.argv[2]) as {
 	prepared?: boolean;
 	light?: boolean;
 	approve?: boolean | "connect";
+	approveTool?: "once" | "run";
 	plan?: boolean;
 	planOnApproval?: "connect" | "call";
 	resume?: string;
@@ -65,6 +66,7 @@ try {
 	const pendingApproval = Promise.withResolvers<"deny">();
 	const host = await openHost({
 		...options,
+		approveTool: options.approveTool ? async () => options.approveTool! : undefined,
 		approve: options.approve
 			? async request => {
 					if (options.planOnApproval && request.tool.startsWith(`mcp-${options.planOnApproval}:`)) switchToPlan();

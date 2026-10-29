@@ -23,7 +23,8 @@ import { ProductSessions, type ResumeUI } from "./sessions";
 import { logger } from "@oh-my-pi/pi-utils";
 import { ModelTraces } from "../diagnostics/model-trace";
 import { resolvePreset, samePreset } from "../presets/presets";
-import { PRODUCT_TOOL_NAMES } from "./tool-catalog";
+import { PRODUCT_TOOL_NAMES, TOOL_ACCESS_NAME } from "./tool-catalog";
+import type { ToolAccessApprover } from "./temporary-tools";
 import { readSessionSnapshot } from "./session-snapshot";
 import { PreparedTranscript } from "../presets/prepared-transcript";
 
@@ -35,6 +36,7 @@ export interface HostOptions {
 	interactive?: boolean;
 	resume?: string;
 	approve?: Approver;
+	approveTool?: ToolAccessApprover;
 	permissions?: ApprovalMode;
 	preset?: string;
 	plan?: boolean;
@@ -181,10 +183,13 @@ export async function openHost(options: HostOptions): Promise<Host> {
 			const tools = light ? [] : productTools(state, toolContext);
 			if (
 				!light &&
-				(tools.length !== PRODUCT_TOOL_NAMES.length - 1 ||
+				(tools.length !== PRODUCT_TOOL_NAMES.length ||
 					new Set(tools.map(tool => tool.name)).size !== tools.length ||
 					tools.some(
-						tool => !(PRODUCT_TOOL_NAMES as readonly string[]).includes(tool.name) || tool.name === "goal",
+						tool =>
+							(tool.name !== TOOL_ACCESS_NAME &&
+								!(PRODUCT_TOOL_NAMES as readonly string[]).includes(tool.name)) ||
+							tool.name === "goal",
 					))
 			)
 				throw new Error("产品工具注册与预设能力清单不一致，请检查工具目录。");
@@ -241,6 +246,7 @@ export async function openHost(options: HostOptions): Promise<Host> {
 							},
 							() => created?.session,
 							target => sessions?.permitsNativeSwitch(target) ?? false,
+							options.approveTool,
 						),
 					},
 				],
@@ -253,6 +259,7 @@ export async function openHost(options: HostOptions): Promise<Host> {
 			await state.liveResources.syncTools();
 			session.addDisposer(session.agent.addBeforeModelCallHook(() => state.liveResources!.syncTools()));
 			sessions = new ProductSessions(state, created.session, async next => {
+				state.toolAccess?.clearJobs();
 				const previousRuntime = activeRuntime;
 				activeRuntime = next;
 				const { diagnostics: _diagnostics, ...fields } = next;
@@ -347,6 +354,7 @@ export async function openHost(options: HostOptions): Promise<Host> {
 				},
 				dispose() {
 					disposing ??= (async () => {
+						state.toolAccess?.close();
 						try {
 							await state.liveResources?.close();
 							await state.review?.close();
@@ -367,6 +375,7 @@ export async function openHost(options: HostOptions): Promise<Host> {
 				},
 			};
 		} catch (error) {
+			state.toolAccess?.close();
 			try {
 				await state.review?.close();
 				await created?.session.dispose();

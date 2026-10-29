@@ -1,6 +1,6 @@
 # 命名工作流预设与管理
 
-更新：2026-10-29。已提供创建/复制、终端草稿编辑、资源选择、默认绑定与终端内切换。未设置默认时，不带 --preset 仍为 legacy。Win/Mac 共用存储、编译、编辑器和交接逻辑；本轮新增交接只在 Windows 实机验证。
+更新：2026-10-29。已提供创建/复制、终端草稿编辑、资源选择、默认绑定与终端内切换。未设置默认时，不带 --preset 仍为 legacy。Win/Mac 共用存储、编译、编辑器和交接逻辑；Windows 已有真实模型与终端证据，Mac 本轮补充了受控模型下的实际 PTY 管理/交接，见 [Mac 验收](verification/mac-preset-handoff-2026-10-29.md)。
 
 ## 开始使用
 
@@ -94,6 +94,16 @@ bun run agent preset default
 
 清单可保存 manual/auto、目录及网络范围，不能保存 full。用户仍可在当前进程主动选择 full；计划模式与现有授权检查继续独立生效。
 
-交接、取消、失败回退和真实 Go / DeepSeek max A/B/A 记录见 [批次 3 验证](verification/batch3-terminal-handoff-2026-10-29.md)。完整 Windows 回归、新 Mac 实机及原生命令隔离仍有缺口；尚未实现可移植预设包或 GUI。
+## 临时使用预设未启用的工具
 
-macOS 的实际请求隔离、A→B→A 冷恢复与终端 `$` 技能调用证据见 [Mac 历史验收](verification/mac-preset-2026-10-28.md)。Windows 新增真实 OpenCode Go / DeepSeek V4.1 Flash max 开源源码任务、默认绑定和 A/B/A 冷恢复，见 [10-29 真实验收](verification/preset-real-agent-2026-10-29.md)；没有新增 Mac、命令隔离或运行中交接的通过声明。
+`/tools` 或 `/agent` → “临时工具授权”可以查看、启用和撤销工具。状态按基线启用、临时启用、关闭区分，后台任务的收尾权限单独显示。人工菜单只提供“本次 Agent 运行有效”；也可以输入 `/tools allow write`，确认后临时启用 write，`/tools revoke write` 撤销，`/tools clear` 撤销所有运行期授权。
+
+需要仅调用一次时，模型通过 `request_tool` 提交具体工具、参数和理由，你选择“仅此次调用”“本次Agent运行有效”或“拒绝”。查看详情或关闭界面不会批准。单次执行的是这笔具体调用，后续调用仍需重新申请。临时启用只改变工具能否使用，具体写入、命令等仍按照原有规则审批；目录、联网、计划模式、命令隔离与 MCP 已选择服务范围继续生效。
+
+运行期授权只在内存中，同一预设同一进程内的 `/new`、`/resume` 保留；退出、重启、冷恢复或预设交接清空。不写入 preset.json，不改变预设身份，不能用它申请 goal 管理、原生工具或未配置服务。轻量模式没有此入口。非交互运行默认拒绝能力申请，即使操作权限为 auto/full 也不会替人开启工具；SDK 宿主可显式提供独立的 `approveTool` 回调。
+
+临时 bash 创建的后台任务保留仅限关联任务 ID 的输出和停止能力；撤销 bash 后仍可收尾，不能读取其它任务，停止结果只返回目标任务。`/resources off tool:名称` 在 legacy 中也会撤销该工具的运行期授权。使用和验收范围见 [临时工具授权验证](verification/temporary-tools-2026-10-29.md)。
+
+交接、取消、失败回退和真实 Go / DeepSeek max A/B/A 记录见 [批次 3 验证](verification/batch3-terminal-handoff-2026-10-29.md)。Mac 已补实际终端管理、同窗口恢复、准备取消和目标引用错误保护；完整 Windows 回归及其原生命令隔离仍有缺口。其余故障阶段与长期行为按各平台验收记录保留边界；尚未实现可移植预设包或 GUI。
+
+macOS 的实际请求隔离、A→B→A 冷恢复与终端 `$` 技能调用证据见 [Mac 历史验收](verification/mac-preset-2026-10-28.md)。Windows 新增真实 OpenCode Go / DeepSeek V4.1 Flash max 开源源码任务、默认绑定和 A/B/A 冷恢复，见 [10-29 真实验收](verification/preset-real-agent-2026-10-29.md)；该 Windows 冷恢复记录不包含 Mac、原生命令隔离或运行中交接的通过结论；后续交接与 Mac 验收以本页上文链接为准。

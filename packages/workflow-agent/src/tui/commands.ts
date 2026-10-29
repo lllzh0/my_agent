@@ -19,6 +19,7 @@ import { resourcesFromCommand } from "./resources";
 import { resourceDisabled } from "../runtime/resources";
 import { traceFromCommand } from "./trace";
 import { presetFromCommand } from "./presets";
+import { toolsFromCommand } from "./tool-access";
 
 const commands: SlashCommand[] = [
 	{ name: "help", description: "显示当前产品支持的命令" },
@@ -50,7 +51,12 @@ const commands: SlashCommand[] = [
 		argumentHint: "[on|off|list|show <ID>|compare <ID-A> <ID-B>]",
 		allowArgs: true,
 	},
-	{ name: "tools", description: "查看实际工具与资源清单" },
+	{
+		name: "tools",
+		description: "查看工具状态、临时启用或撤销工具授权",
+		argumentHint: "[list|allow <名称>|revoke <名称>|clear]",
+		allowArgs: true,
+	},
 	{
 		name: "resources",
 		description: "热切换工具、技能、指令和附加提示词",
@@ -353,11 +359,7 @@ export async function handleProductCommand(
 				await showProductData(ctx, "代码审查结果", await reviewFromCommand(state, ctx, args || undefined));
 				break;
 			case "tools":
-				await showProductData(ctx, "工具与资源", {
-					tools: api.getActiveTools(),
-					resources: state.resources.entries,
-					light: state.light,
-				});
+				await toolsFromCommand(state, ctx, args, ensureIdle);
 				break;
 			case "jobs": {
 				const parts = args.split(/\s+/);

@@ -125,7 +125,7 @@ test(
 			await run([], "FIRST_BOUND_SESSION");
 			expect(f.requests).toHaveLength(1);
 			expect(JSON.stringify(f.requests[0])).toContain("RULE_ONLY_FOR_BOUND_WORK");
-			expect(f.requests[0].tools?.map(tool => tool.function.name)).toEqual(["read"]);
+			expect(f.requests[0].tools?.map(tool => tool.function.name)).toEqual(["read", "request_tool"]);
 			const directory = path.join(f.home, "presets/work/sessions");
 			const sessions = (await fs.readdir(directory)).filter(file => file.endsWith(".jsonl"));
 			expect(sessions).toHaveLength(1);

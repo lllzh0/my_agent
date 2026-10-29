@@ -176,7 +176,7 @@ for (const failure of [
 	"cancel-linked",
 ] as const)
 	test(`supervisor owns terminal and preserves source/target during ${failure}`, async () => {
-		const home = await fs.mkdtemp(path.join(os.tmpdir(), "handoff-"));
+		const home = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "handoff-")));
 		const cwd = await fs.realpath(home);
 		const launchHome = failure === "cancel-linked" ? path.join(home, "home-alias") : home;
 		if (launchHome !== home) await fs.symlink(home, launchHome, process.platform === "win32" ? "junction" : "dir");

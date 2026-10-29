@@ -1,4 +1,7 @@
 /** Product capabilities only. Keep native/extension discovery outside this allowlist. */
+export const TOOL_ACCESS_NAME = "request_tool";
+
+/** Selectable preset tools; the permission request entry point is registered separately. */
 export const PRODUCT_TOOL_NAMES = [
 	"read",
 	"write",

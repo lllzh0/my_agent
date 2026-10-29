@@ -15,6 +15,7 @@ import type { LiveResources } from "./live-resources";
 import type { ModelTraces } from "../diagnostics/model-trace";
 import type { PresetIdentity } from "../presets/presets";
 import type { PresetHandoff } from "../presets/handoff-client";
+import type { TemporaryTools } from "./temporary-tools";
 
 export interface RunState {
 	home: string;
@@ -38,6 +39,7 @@ export interface RunState {
 	models?: ProductModels;
 	review?: ProductReview;
 	liveResources?: LiveResources;
+	toolAccess?: TemporaryTools;
 	traces?: ModelTraces;
 	handoff?: PresetHandoff;
 	snapshotWritable?: boolean;

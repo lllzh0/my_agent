@@ -47,7 +47,7 @@ export class LiveResources {
 				id: `tool:${name}`,
 				kind: "tool",
 				name,
-				enabled: !resourceDisabled(state.config, `tool:${name}`),
+				enabled: !resourceDisabled(state.config, `tool:${name}`) || state.toolAccess?.isEnabled(name) === true,
 				active: active.has(name),
 			})),
 			...state.resources.entries
@@ -89,7 +89,7 @@ export class LiveResources {
 		const state = this.#state;
 		const current = session.getEnabledToolNames();
 		const next = this.#toolNames.filter(name => {
-			if (resourceDisabled(state.config, `tool:${name}`)) return false;
+			if (resourceDisabled(state.config, `tool:${name}`) && !state.toolAccess?.isEnabled(name)) return false;
 			// Goal owns activation of its lifecycle tool.
 			return name !== "goal" || current.includes("goal");
 		});
@@ -105,7 +105,13 @@ export class LiveResources {
 		else disabled.add(id);
 		if (disabled.size) next.resources.disabled = [...disabled];
 		else delete next.resources.disabled;
-		return this.apply(next, signal);
+		return this.withTransaction(async apply => {
+			await apply(next, signal);
+			if (!enabled && id.startsWith("tool:")) {
+				this.#state.toolAccess?.revoke(id.slice(5));
+				await this.syncTools();
+			}
+		});
 	}
 	apply(next: Config, signal?: AbortSignal): Promise<void> {
 		return this.withTransaction(apply => apply(next, signal));

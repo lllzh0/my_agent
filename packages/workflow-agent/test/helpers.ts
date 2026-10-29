@@ -190,6 +190,7 @@ export async function fixture(homeInsideWorkspace = false) {
 			const child = Bun.spawn(
 				[
 					process.execPath,
+					"--no-env-file",
 					path.resolve(import.meta.dir, "../src/launcher.ts"),
 					"--home",
 					home,
@@ -219,6 +220,7 @@ export async function fixture(homeInsideWorkspace = false) {
 				prepared?: boolean;
 				light?: boolean;
 				approve?: boolean | "connect";
+				approveTool?: "once" | "run";
 				plan?: boolean;
 				testKey?: string;
 				testMcpTimeout?: string;
@@ -257,6 +259,7 @@ export async function fixture(homeInsideWorkspace = false) {
 			const child = Bun.spawn(
 				[
 					process.execPath,
+					"--no-env-file",
 					path.join(import.meta.dir, "host-worker.ts"),
 					JSON.stringify({ home, cwd, resultFile, ...options }),
 				],

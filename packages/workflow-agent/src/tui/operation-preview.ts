@@ -8,7 +8,7 @@ import { redact } from "../storage";
 
 const MAX_PREVIEW_LINES = PREVIEW_LIMITS.OUTPUT_EXPANDED * 10;
 
-function bounded(text: string, lines = MAX_PREVIEW_LINES): string {
+export function formatPreviewText(text: string, lines = MAX_PREVIEW_LINES): string {
 	const visible = truncateHead(replaceTabs(String(redact(sanitizeText(text)))), { maxLines: lines, maxBytes: 8_000 });
 	return `${visible.content}${visible.truncated ? "\n…预览已截断" : ""}`;
 }
@@ -52,7 +52,7 @@ export function formatApproval(request: Request, compact = false): string {
 	} else if (["write", "write_report"].includes(value.tool) && typeof fields.preview === "string") {
 		body = `写入内容预览（不代表完整文件差异）\n${fields.preview}${fields.previewTruncated ? "\n…写入内容已截断" : ""}`;
 	} else body = JSON.stringify(fields, null, 2);
-	return bounded(
+	return formatPreviewText(
 		`批准 ${value.tool}\n${value.target}\n${value.review?.reason ? `${value.review.reason}\n` : ""}\n${body}`,
 		compact ? PREVIEW_LIMITS.EXPANDED_LINES : MAX_PREVIEW_LINES,
 	);
