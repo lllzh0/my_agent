@@ -1,5 +1,7 @@
 # OMP stability backports 1–3 Implementation Plan
 
+状态：已实施并保存验收记录，本计划归档；不再作为下一阶段待办。当前工作见 [批次 1 计划](2026-10-29-batch1-cross-platform.md)。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Preserve existing text-file conventions, retain successful compaction when an optional short summary fails, and recover compaction queues without loss or duplication.

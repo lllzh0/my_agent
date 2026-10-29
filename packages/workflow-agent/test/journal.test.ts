@@ -59,7 +59,7 @@ test("journal keeps recording after 100 changes and restores a complete large tu
 		assert.deepEqual(reopened.latestTurn(), []);
 		assert.equal((await reopened.stats()).pending, 0);
 	});
-});
+}, 30_000);
 
 test("retained snapshots may exceed the former byte limit while repeated contents share storage", async () => {
 	await withJournal(async ({ workspace, open }) => {
@@ -120,7 +120,7 @@ test("legacy migration preserves IDs, snapshots and original JSON without import
 		assert.equal((await journal.stats()).referencedBytes, 18);
 		await journal.restoreMany(["legacy-1", "legacy-2"]);
 		assert.equal(await Bun.file(target).text(), "alpha");
-		assert.equal((await fs.stat(target)).mode & 0o777, 0o640);
+		if (process.platform !== "win32") assert.equal((await fs.stat(target)).mode & 0o777, 0o640);
 		await journal.close();
 		const reopened = open();
 		await reopened.load();
@@ -185,11 +185,14 @@ test("latest turn skips restored runs and never overwrites a newer manual edit",
 
 test("default journal rejects external paths and symlink escapes before an operation runs", async () => {
 	await withJournal(async ({ root, workspace, open }) => {
-		const outside = path.join(root, "outside.txt");
+		const outsideDirectory = path.join(root, "outside");
+		await fs.mkdir(outsideDirectory);
+		const outside = path.join(outsideDirectory, "file.txt");
 		await Bun.write(outside, "private original");
-		await fs.symlink(outside, path.join(workspace, "escape.txt"));
+		const linked = path.join(workspace, "escape");
+		await fs.symlink(outsideDirectory, linked, process.platform === "win32" ? "junction" : "dir");
 		const journal = open();
-		for (const target of [outside, path.join(workspace, "escape.txt")])
+		for (const target of [outside, path.join(linked, "file.txt")])
 			await assert.rejects(
 				journal.capture("escape", target, () => Bun.write(target, "overwritten")),
 				/工作区/,
@@ -232,7 +235,7 @@ test("restore rejects a replaced parent directory before writing through a new s
 		const journal = open();
 		await journal.capture("replaced", target, () => Bun.write(target, "agent"));
 		await fs.rename(parent, `${parent}-original`);
-		await fs.symlink(outside, parent);
+		await fs.symlink(outside, parent, process.platform === "win32" ? "junction" : "dir");
 		await assert.rejects(journal.restore(journal.latestTurn()[0].id), /路径|工作区/);
 		assert.equal(await Bun.file(path.join(outside, "file.txt")).text(), "outside original");
 		assert.equal(await Bun.file(path.join(`${parent}-original`, "file.txt")).text(), "agent");

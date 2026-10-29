@@ -17,7 +17,7 @@ bun run agent --preset work
 bun run agent --preset chat --demo
 ```
 
-管理命令在轻量 launcher 中执行，不启动 SDK、模型或 MCP。`check` 只验证格式、路径和连接引用，不证明模型连通、技能元数据正确或沙箱可运行。当前运行平台包括已准备的 macOS arm64 与 Windows x64；Windows 命令隔离仍为 alpha，并有本地 stdio MCP 限制，见 [Windows 说明](workflow-agent-windows.md)。跨平台更新源码后需先按新锁文件补齐依赖。
+管理命令在轻量 launcher 中执行，不启动 SDK、模型或 MCP。`check` 只验证格式、路径和连接引用，不证明模型连通、技能元数据正确或沙箱可运行。当前运行平台包括已准备的 macOS arm64 与 Windows x64；Windows 命令隔离仍为 alpha，并有本地 stdio MCP 限制，见 [Windows 说明](workflow-agent-windows.md)。跨平台更新源码后需运行 `agent:prepare` 补齐基础依赖和生成资源；准备行为与平台证据见 [当前交付](workflow-agent-delivery.md)。
 
 `chat` 为纯聊天；`bare` 含常用产品工具，但没有工作流指令、技能或 MCP。两者不可覆盖。`coding` 和 `research` 是创建模板，不自动选择本机 AGENTS 或技能。`research` 初始没有直接文件编辑、命令和 goal，可保存研究报告。创建不会覆盖同名目录或清单。
 

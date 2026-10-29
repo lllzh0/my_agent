@@ -1,6 +1,8 @@
 # 原生 Windows：启动与命令隔离
 
-2026-10-28。新增 Windows x64 原生适配：OMP 18.10.3 组件、PowerShell 命令、本地 MCP、进程树取消、诊断及恢复命令。Windows arm64 的包选择路径已接入，尚未实机验证。Linux/WSL 不属于本批。
+更新：2026-10-29。Windows x64 已接入 OMP 18.10.3 组件、PowerShell、进程树取消、诊断及恢复。HTTP MCP 可用；本地 stdio MCP 仅显式 full 可直接执行，普通隔离权限拒绝。Windows arm64 的包选择路径已接入，尚未实机验证。Linux/WSL 不属于本批。
+
+当前验收阻塞：本机 10-29 的真实隔离初始化在 `.acl-init.lock` 返回拒绝访问，用户在管理员 PowerShell 执行原生 `acl recover` 同样失败。10-28 的通过记录保留为历史证据，不能据此认定当前机器隔离仍可用；见 [本轮诊断](verification/batch1-cross-platform-2026-10-29.md)。产品仍拒绝执行，不自动转为 full。
 
 ## 准备
 
@@ -12,7 +14,7 @@ bun run agent:sandbox status
 bun run agent --demo --print --prompt '确认可以离线启动'
 ```
 
-prepare 只安装源码依赖、生成工具视图并校验同版本原生组件；不安装系统沙箱。Windows x64 使用官方包中的 baseline 组件，不要求 AVX2。现有 macOS arm64 路径保留。
+prepare 从官方 registry 按锁文件安装基础依赖，跳过安装脚本并降低下载并发，生成工具视图并校验同版本原生组件；不安装系统沙箱。Windows x64 使用官方包中的 baseline 组件，不要求 AVX2。现有 macOS arm64 路径保留。本轮新目录准备与回归见 [批次 1](verification/batch1-cross-platform-2026-10-29.md)。
 
 命令隔离需要主动进行一次系统安装：
 
@@ -66,4 +68,4 @@ bun test packages/workflow-agent/test/windows-sandbox.test.ts
 Remove-Item Env:\MY_AGENT_WINDOWS_SANDBOX_TEST
 ```
 
-该验收检查工作区写入、受保护文件、越界写入、Git 元数据及网络拒绝；只证明这些具体行为。实际执行结果、依赖安装问题和待验收项见 [本批记录](verification/windows-2026-10-28.md)。
+该验收检查工作区写入、受保护文件、越界写入、Git 元数据及网络拒绝；只证明这些具体行为。此前通过记录见 [10-28 验收](verification/windows-2026-10-28.md)，当前失败及待处理项见 [10-29 复验](verification/batch1-cross-platform-2026-10-29.md)。

@@ -12,7 +12,7 @@ try {
 	if (natives.version !== agent.version || !/^\d+\.\d+\.\d+(?:-[A-Za-z0-9.-]+)?$/.test(natives.version))
 		throw new Error("OMP 与原生组件源码版本不一致，请先核对 checkout");
 	console.log("安装锁定依赖（不执行依赖安装脚本）……");
-	await $`${process.execPath} install --frozen-lockfile --ignore-scripts --filter @my-agent/workflow-agent --filter @oh-my-pi/collab-web`.cwd(
+	await $`${process.execPath} install --frozen-lockfile --ignore-scripts --filter @my-agent/workflow-agent --filter @oh-my-pi/collab-web --registry https://registry.npmjs.org --network-concurrency 8`.cwd(
 		root,
 	);
 	console.log("生成 OMP 工具视图……");

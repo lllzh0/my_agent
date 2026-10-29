@@ -16,7 +16,7 @@
 
 ## 在当前工作区启动
 
-新增原生 Windows 准备与 PowerShell 命令适配，Windows 隔离为上游 alpha 后端，需要人主动进行一次系统账户/WFP 安装；不会因未安装而降级执行。本机真实命令隔离与 OpenCode Go / DeepSeek V4.1 Flash `max` 最小调用链已通过。本地 stdio MCP 的隔离 stdin 尚不可用，普通权限启动前拒绝；HTTP MCP 和显式 full 路径保留。先阅读 [Windows 使用说明与验证边界](../../docs/workflow-agent-windows.md)。下述 macOS 环境是此前验收基线。
+新增原生 Windows 准备与 PowerShell 命令适配，Windows 隔离为上游 alpha 后端，需要人主动进行一次系统账户/WFP 安装；不会因未安装而降级执行。2026-10-28 已通过真实命令隔离及 OpenCode Go / DeepSeek V4.1 Flash `max` 最小调用链；10-29 复验遇到原生 `.acl-init.lock` 拒绝访问，管理员终端的恢复命令同样失败，当前隔离验收未闭合。本地 stdio MCP 的隔离 stdin 尚不可用，普通权限启动前拒绝；HTTP MCP 和显式 full 路径保留。先阅读 [Windows 使用说明与验证边界](../../docs/workflow-agent-windows.md)。下述 macOS 环境是此前验收基线。
 
 此前完整验收环境：Bun 1.3.14、macOS arm64、OMP 18.10.3。完成对应平台的源码准备后运行：
 
@@ -31,7 +31,7 @@ bun run agent --demo
 
 需要回到原界面时运行 `bun run agent --ui classic`；离线验证可加 `--demo`。墨线布局面向普通 ANSI 终端，Tern 原生界面继续使用原生布局；Windows 已通过工具驱动的 ConPTY 离线交互，Tern 尚未实测。
 
-新 clone 的源码先运行 `bun run agent:prepare`。它按锁文件安装产品和工具视图生成器的依赖、生成视图、下载并校验同版本官方原生组件，不执行依赖安装脚本。需要访问 npm registry；macOS arm64 是原有验收平台，Windows 的准备、隔离和验证范围见上方说明。这是使用预编译组件的源码启动流程，没有编译 Rust。此包依赖同仓库 workspace，不能直接当作独立 npm 包安装。
+新 clone 的源码先运行 `bun run agent:prepare`。它从官方 npm registry 按锁文件安装产品和工具视图生成器的基础依赖、生成视图、下载并校验同版本官方原生组件，不执行依赖安装脚本；保留锁定依赖集合，网络并发限制为 8。需要访问 npm registry；macOS arm64 是原有验收平台，Windows 的准备、隔离和验证范围见上方说明。这是使用预编译组件的源码启动流程，没有编译 Rust。此包依赖同仓库 workspace，不能直接当作独立 npm 包安装。
 
 启动后等到“输入已就绪”再输入命令或粘贴问题。初始化期间的按键会被忽略，已积压的粘贴与按键片段会清理；若持续输入超过 2 秒未停止，启动会退出并提示重试。
 
@@ -65,7 +65,7 @@ bun run agent doctor
 bun run agent --cwd /你的项目目录
 ```
 
-默认模型配置为 `provider: opencode-go`、`id: deepseek-v4.1-flash`；搜索为 Tavily。配置只保存密钥的环境变量名。`doctor` 仅检查配置、运行时与依赖，不发送模型或搜索请求，也不证明真实连通性。真实服务、地区可用性、额度限制及任务质量尚未验证。
+默认模型配置为 `provider: opencode-go`、`id: deepseek-v4.1-flash`；搜索为 Tavily。配置只保存密钥的环境变量名。`doctor` 仅检查配置、运行时与依赖，不发送模型或搜索请求，也不证明真实连通性。已有 OpenCode Go / DeepSeek V4.1 Flash max 的最小链路和辅助式代码任务证据；地区、长期额度、Tavily 真实账号及更广任务质量仍待验证，见 [当前交付](../../docs/workflow-agent-delivery.md)。
 
 OpenCode Go 要求的 `x-opencode-session` 已由 OMP 自动附加：同一会话的工具调用和恢复沿用同一个 ID，新会话使用新 ID，轻量模式也会携带。当前客户端 `User-Agent` 为 `omp/18.10.3`。无需在配置中手填固定请求头；官方要求和实际请求验证见 [OpenCode Go 请求头核对](../../docs/workflow-agent-opencode-go.md)。
 
@@ -159,7 +159,7 @@ MCP 是接入其他程序所提供工具的协议。打开 `/agent` → “MCP �
 
 manual 模式首次连接需要批准，实际工具调用按完整参数另行批准；会话许可只复用完全相同的请求。auto 对连接与调用独立审核，高风险、未知或审核失败时询问人；full 跳过逐项批准，本地 MCP 不使用命令沙箱。切换授权方式会断开已有连接。计划模式禁止连接和调用，轻量模式没有 MCP 工具。连接失败、超时或取消后不会自动重放业务操作，需先核实外部结果再决定是否重试。
 
-表单只填写密钥的环境变量名，密钥在启动终端设置。本地程序必须已经安装，工作目录固定为当前项目，并使用产品沙箱和受控环境变量。远程只支持 Streamable HTTP，外部地址必须是 HTTPS；本机可用 HTTP。OAuth、旧 SSE 和自动安装尚未接入。
+表单只填写密钥的环境变量名，密钥在启动终端设置。本地程序必须已经安装，工作目录固定为当前项目，并使用产品沙箱和受控环境变量。Windows 普通权限目前拒绝本地 stdio MCP；可选择 HTTP MCP，或由用户显式启用 full 直接运行，后者没有命令隔离。远程只支持 Streamable HTTP，外部地址必须是 HTTPS；本机可用 HTTP。OAuth、旧 SSE 和自动安装尚未接入。
 
 配置例子、常见失败原因、权限边界和本轮验证见 [MCP 使用与实现记录](../../docs/workflow-agent-mcp.md)。
 
@@ -212,11 +212,11 @@ bun test packages/workflow-agent/test
 MY_AGENT_SANDBOX_TEST=1 bun test packages/workflow-agent/test
 ```
 
-普通测试默认跳过六项真实沙箱测试；最后一条需在普通 macOS 终端运行。在 Codex 等外层沙箱中嵌套 `sandbox-exec` 可能被系统拒绝，不能因此关闭产品隔离。全部测试使用临时文件和本地模拟服务，不需要真实密钥。
+真实系统隔离专项默认跳过，数量随平台和测试版本变化；最后一条启用 macOS 专项。Windows 使用 `MY_AGENT_WINDOWS_SANDBOX_TEST=1` 单独启用 `test/windows-sandbox.test.ts`，不要把另一平台的跳过项算作已执行。在 Codex 等外层沙箱中嵌套 `sandbox-exec` 可能被系统拒绝，不能因此关闭产品隔离。全部测试使用临时文件和本地模拟服务，不需要真实密钥。
 
-干净源码副本已用独立 HOME 和空 Bun 缓存跑通 `agent:prepare`、setup、doctor、diagnose、离线问答及命令恢复；删除源码副本后，独立用户目录中的配置和会话仍保留。此证据不代表独立安装包、升级迁移或真实模型任务验收。
+此前 macOS 干净源码副本已用独立 HOME 和空 Bun 缓存跑通 `agent:prepare`、setup、doctor、diagnose、离线问答及命令恢复；删除源码副本后，独立用户目录中的配置和会话仍保留。本轮 Windows 准备及失败边界见 [批次 1 验证](../../docs/verification/batch1-cross-platform-2026-10-29.md)。这些证据不代表独立安装包、升级迁移或真实模型任务验收。
 
-入口迁移证据见 [迁移记录](../../docs/workflow-agent-migration.md)，后续 MCP 证据见 [MCP 记录](../../docs/workflow-agent-mcp.md)，最新结果见 [本地交付与验证](../../docs/workflow-agent-delivery.md)。真实模型、Tavily、其他用户所选 MCP 的业务调用、第三方代码扩展、完整预设管理、跨平台、打包、GUI 和六项真实任务验收仍未完成。
+入口迁移证据见 [迁移记录](../../docs/workflow-agent-migration.md)，后续 MCP 证据见 [MCP 记录](../../docs/workflow-agent-mcp.md)，最新结果见 [本地交付与验证](../../docs/workflow-agent-delivery.md)。Win/Mac 源码运行、共享 UI、预设启动隔离和有限真实模型链路已有证据。仍待预设编辑与运行中切换、Windows 隔离 stdio MCP、Tavily/复杂业务验收、其他架构、独立分发、GUI 及六项任务的用户接受；逐项状态见交付说明。
 
 
 ## 模型、新会话、差异审查和 MCP 证据

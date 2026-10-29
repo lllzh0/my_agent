@@ -1,5 +1,7 @@
 # Phase 1 Completion Implementation Plan
 
+状态：历史实施计划，已完成的主线能力不再作为当前待办；协作分支条目不自动视为主线缺口。当前状态与剩余工作见 [交付说明](../../workflow-agent-delivery.md)。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Root owns shared integration and Git operations; workers must not commit or push.
 
 **Goal:** Synchronize single-agent main, complete the five shared daily-use features and the two collaboration features already approved by the user.

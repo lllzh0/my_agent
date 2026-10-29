@@ -3,6 +3,11 @@ import * as os from "node:os";
 import * as path from "node:path";
 import type { Config } from "../src/config/config";
 
+// Windows source SDK import currently costs about 46 s before model IO.
+// Integration cases may start several isolated hosts; keep their finite startup budget explicit.
+export const HOST_TEST_TIMEOUT = process.platform === "win32" ? 240_000 : 30_000;
+export const HOST_STARTUP_ATTEMPTS = process.platform === "win32" ? 9_000 : 200;
+
 export interface WireRequest {
 	model: string;
 	messages: { role: string; content: unknown }[];
