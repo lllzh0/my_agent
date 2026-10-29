@@ -247,7 +247,10 @@ async function run(): Promise<void> {
 						await host.session.goalRuntime.pauseGoal();
 					}
 					mode.addAutocompleteProvider(current =>
-						createSkillAutocompleteProvider(current, () => host.state.resources.skills),
+						createSkillAutocompleteProvider(
+							current,
+							() => host.state.skillAccess?.effectiveSkills() ?? host.state.resources.skills,
+						),
 					);
 					await ink?.start();
 				},

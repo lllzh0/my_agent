@@ -29,6 +29,7 @@ Windows 命令隔离还需单独的系统安装，见 [Windows 使用说明](wor
 | 预设管理与终端交接 | 已实现草稿、资源、默认绑定及空闲交接/取消/失败回退；Windows 真实模型 A/B/A 通过，未激活目标写入暂存；[使用方式](workflow-agent-presets.md)、[批次 3 证据](verification/batch3-terminal-handoff-2026-10-29.md) |
 | Mac 管理交接补验（临时工具授权前） | 路径夹具修正、实际 PTY 管理/交接、权限重置、MCP 关闭、新源码/空缓存准备及同文件冷恢复通过；该轮全量396 pass / 16 skip / 0 fail，真实沙箱/终端另行14 pass；[Mac 验收](verification/mac-preset-handoff-2026-10-29.md)。本机受控模型，不代表真实服务或人工接受 |
 | 临时工具授权 | 单次/当前运行期人工授权，保留原策略和操作审批，支持管理/撤销和关联任务收尾；最新全量445 pass / 16 skip / 0 fail，真实 Mac 隔离/终端15 pass，静态检查及独立审查通过；[用法](workflow-agent-presets.md#临时使用预设未启用的工具)、[验收与环境边界](verification/temporary-tools-2026-10-29.md)。本地提交与同步状态以 Git 为准；未推送或做 Windows 实机验证 |
+| 临时技能与 MCP 授权 | `$名称` 单次加载、`/skills` 管理，`/mcp temporary` 按具体工具授权；本轮全量498 pass / 16 skip / 0 fail，真实 Mac 隔离/终端17 pass，SDK 技能回归65 pass，静态检查和独立复审通过；[用法](workflow-agent-presets.md#临时使用-skill-和-mcp)、[验收](verification/temporary-resources-2026-10-29.md)。本轮改动未提交、未推送，未做 Windows 实机或真实付费服务验收 |
 | 真实模型 | Windows 新增 10 次 Go / DeepSeek V4.1 Flash max 请求，开源源码修复独立检查 45/45，A/B/A 冷恢复及请求隔离通过；[本轮验收](verification/preset-real-agent-2026-10-29.md)。历史最小命令链及 Mac 代码任务仍见 [Windows 记录](verification/windows-2026-10-28.md)、[代码任务](workflow-agent-real-code-acceptance.md) |
 | 研究服务 | 内置 Tavily 路径及 HTTP MCP 已实现；Exa 曾有真实来源链验证，Tavily 真实账号/研究质量仍待验收 |
 

@@ -4,7 +4,7 @@
 
 ## 当前基线与本轮范围
 
-本批起点为 `58cce6f8e9`，包含批次 1 `bc8ae2f29d`、批次 2 `4ad2f31dc3` 和批次 3 `58cce6f8e9`。本批包含 Mac 路径回归、真实终端交接和新目录准备验收，以及用户批准的临时工具授权代码、边界测试和终端验收。用户随后要求先提交现有改动，再研究 skill/MCP 临时启用；本轮仅获本地提交授权，未推送，提交与远端同步状态以 Git 为准。
+Mac 路径回归、终端交接与临时工具授权已按用户要求保存在本地提交 `eae675cc32`，未推送。本轮在此基础上实现用户批准的 skill/MCP 临时授权；本轮新改动没有提交或推送授权，状态以 Git 为准。此前批次 1 `bc8ae2f29d`、批次 2 `4ad2f31dc3` 和批次 3 `58cce6f8e9` 的证据继续保留。
 
 用户明确本批为进程交接、旧会话保存、MCP/作业清理和启动失败恢复。已实现共享 IPC、空闲门禁、准备取消、保存/清理/激活和失败回退，并以 env.local 的 OpenCode Go / DeepSeek V4.1 Flash max 在单一 Windows 终端完成开源任务与 A/B/A 交接。启动版冷恢复基线单列，不混算。[当前交付](docs/workflow-agent-delivery.md)、[批次 2](docs/verification/batch2-preset-management-2026-10-29.md)、[批次 3 实现与边界](docs/verification/batch3-terminal-handoff-2026-10-29.md)。
 
@@ -16,12 +16,14 @@
 - 文件写入、审批和撤销保留 CRLF/LF 与 BOM；完整摘要不因可选短摘要失败丢弃；压缩队列按消息归属恢复，保留新输入和掉落技能。
 - 命名预设启动、清单检查与资源/模型/MCP/聊天/撤销隔离；A→退出→B→退出→恢复 A 已有实际请求和 macOS 终端证据。
 - 临时工具授权：`request_tool` 提交具体调用，人工选择单次或当前运行；`/tools` 查看/启用/撤销。运行期授权跨同进程新对话保留，退出或预设交接清空；原操作审批和目录/联网/计划限制保持。后台任务仅凭关联 ID 收尾，停止不返回其它任务信息。[本轮验证](docs/verification/temporary-tools-2026-10-29.md)。
+- 临时技能/MCP：已登记技能用 `$名称` 申请单次加载或当前运行授权，`/skills` 管理；`/mcp temporary` 对已配置服务的具体工具授权。三类共用审批队列，技能正文冻结、读取范围可撤销，MCP 工具权限与原操作审批分别检查，不修改预设。[用法](docs/workflow-agent-presets.md#临时使用-skill-和-mcp)、[验收](docs/verification/temporary-resources-2026-10-29.md)。
 - 共享预设草稿编辑、显式资源选择、复制和保存前检查；取消不写盘、编辑冲突不覆盖。工作区/全局默认只影响后续启动，旧会话恢复优先原归属，模型不能触发管理入口。
 - `/preset use ID [--new]` 与命名会话 `/resume` 共用终端交接；准备后才关闭源，失败回退一次。旧目标的启动/退出文本在激活前暂存，连接 key/思考强度/计划状态随命名会话保存，full/临时授权不传递。
 - macOS arm64 Seatbelt 与 Windows x64 原生命令入口。Windows 使用独立 0.0.81 alpha 依赖，Mac 保留 0.0.50；共享业务代码，平台适配集中在 Shell、进程和隔离后端。
 
 ## 已有验收记录
 
+- [临时技能与 MCP 授权](docs/verification/temporary-resources-2026-10-29.md)：本轮产品全量 **498 pass / 16 skip / 0 fail**，真实 Mac 隔离/终端组合 **17 pass / 0 fail**；SDK 技能回归 65 pass，两包静态检查和独立复审通过。本机受控模型/MCP，未做本轮 Windows、真实付费服务或人工接受；新改动未提交、未推送。
 - [临时工具授权](docs/verification/temporary-tools-2026-10-29.md)：最新产品全量 **445 pass / 16 skip / 0 fail**，真实 macOS 隔离/终端专项 **15 pass / 0 fail**，静态检查和独立审查通过。localhost 模拟服务验收；未做 Windows 实机或真实付费服务验收，原 Mac 改动继续保留。
 - [最新稳定性回移](docs/verification/upstream-stability-2026-10-28.md)：macOS 产品 359 pass / 16 skip；真实沙箱/终端专项另行 10 pass。不同分组有重叠，不累加为总数。
 - [macOS 与预设验收](docs/verification/mac-preset-2026-10-28.md)：实际请求、A/B/A 冷恢复、审批拒绝/返回、命令展开与后台停止。

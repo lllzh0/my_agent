@@ -10,6 +10,8 @@ import { toolWireSchema } from "@oh-my-pi/pi-ai";
 import { TemporaryTools } from "./temporary-tools";
 import { TOOL_ACCESS_NAME } from "./tool-catalog";
 import requestToolDescription from "../prompts/tool-request-tool.md" with { type: "text" };
+import requestSkillDescription from "../prompts/tool-request-skill.md" with { type: "text" };
+import requestMcpDescription from "../prompts/tool-request-mcp.md" with { type: "text" };
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import type { RunState } from "./state";
@@ -27,6 +29,7 @@ import lsDescription from "../prompts/tool-ls.md" with { type: "text" };
 import { Search } from "../search/search";
 import { Text } from "@oh-my-pi/pi-tui";
 import { formatCommandOutput, formatCommandResult, type CommandResultDetails } from "../tui/command-result";
+import { formatPreviewText } from "../tui/operation-preview";
 
 export const result = (value: unknown) => ({
 	content: [{ type: "text" as const, text: typeof value === "string" ? value : JSON.stringify(value, null, 2) }],
@@ -107,7 +110,11 @@ export function productTools(state: RunState, context: ToolSession): ToolDefinit
 		description: mcpListDescription,
 		parameters: Type.Object({ server: Type.Optional(Type.String()) }),
 		async execute(_id, input, signal) {
-			return result(await state.mcp.list(input.server, signal));
+			return result(
+				input.server && state.mcpAccess
+					? await state.mcpAccess.discover(input.server, "查看已登记服务的工具目录", signal)
+					: await state.mcp.list(input.server, signal),
+			);
 		},
 	});
 	pi.registerTool({
@@ -120,7 +127,17 @@ export function productTools(state: RunState, context: ToolSession): ToolDefinit
 			arguments: Type.Record(Type.String(), Type.Unknown()),
 		}),
 		async execute(_id, input, signal) {
-			return result(await state.mcp.call(input.server, input.tool, input.arguments, signal));
+			return result(
+				state.mcpAccess
+					? await state.mcpAccess.call(
+							input.server,
+							input.tool,
+							input.arguments,
+							"调用已登记服务的指定工具",
+							signal,
+						)
+					: await state.mcp.call(input.server, input.tool, input.arguments, signal),
+			);
 		},
 	});
 	pi.registerTool({
@@ -530,7 +547,7 @@ export function productTools(state: RunState, context: ToolSession): ToolDefinit
 		},
 		renderResult: renderCommandResult,
 	});
-	state.toolAccess ??= new TemporaryTools(state, tools);
+	state.toolAccess ??= new TemporaryTools(state, tools, state.access);
 	pi.registerTool({
 		name: TOOL_ACCESS_NAME,
 		label: "申请临时使用工具",
@@ -557,6 +574,83 @@ export function productTools(state: RunState, context: ToolSession): ToolDefinit
 			return access.execute(
 				id,
 				{ tool: input.tool, reason: input.reason, arguments: input.arguments },
+				signal,
+				update,
+				ctx,
+			);
+		},
+	});
+	pi.registerTool({
+		name: "request_skill",
+		label: "申请临时加载技能",
+		description: requestSkillDescription,
+		parameters: Type.Object({
+			name: Type.Optional(Type.String()),
+			args: Type.Optional(Type.String()),
+			reason: Type.Optional(Type.String()),
+		}),
+		approval: "read",
+		async execute(_id, input, signal) {
+			if (!state.skillAccess) return result([]);
+			if (!input.name)
+				return result(
+					state.skillAccess
+						.list()
+						.filter(entry => !entry.hidden)
+						.map(entry => ({ ...entry })),
+				);
+			if (!input.reason?.trim()) throw new Error("加载技能时必须说明 reason。");
+			const candidate = state.skillAccess
+				.list()
+				.find(entry => entry.name === input.name && !entry.hidden && !entry.error);
+			if (!candidate) throw new Error("技能不在可供模型申请的已登记清单中。");
+			const built = await state.skillAccess.load(input.name, input.args ?? "", input.reason, signal);
+			return { ...result(built.message), details: { skill: input.name } };
+		},
+		renderResult(output, options) {
+			if (options.expanded)
+				return new Text(
+					formatPreviewText(
+						output.content
+							.filter(item => item.type === "text")
+							.map(item => item.text)
+							.join("\n"),
+					),
+					0,
+					0,
+				);
+			return new Text("技能内容已加载；已载入聊天的内容不会因撤销删除。", 0, 0);
+		},
+	});
+	pi.registerTool({
+		name: "request_mcp",
+		label: "申请临时使用 MCP",
+		description: requestMcpDescription,
+		parameters: Type.Object({
+			server: Type.Optional(Type.String()),
+			tool: Type.Optional(Type.String()),
+			arguments: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
+			reason: Type.Optional(Type.String()),
+		}),
+		approval: "read",
+		async execute(id, input, signal, update, ctx) {
+			if (!state.mcpAccess) return result([]);
+			if (!input.server) {
+				if (input.tool || input.arguments) throw new Error("提交 MCP 调用时必须指定 server。");
+				return result(state.mcpAccess.list());
+			}
+			if (!input.reason?.trim()) throw new Error("申请 MCP 时必须说明 reason。");
+			if (!state.mcpAccess.available(input.server)) throw new Error("MCP 服务不在有效的已登记候选中。");
+			if (input.tool && input.arguments === undefined) throw new Error("调用 MCP 工具时必须提交 arguments。");
+			return state.toolAccess!.execute(
+				id,
+				{
+					tool: input.tool ? "mcp_call" : "mcp_list",
+					reason: input.reason,
+					arguments: input.tool
+						? { server: input.server, tool: input.tool, arguments: input.arguments }
+						: { server: input.server },
+				},
 				signal,
 				update,
 				ctx,

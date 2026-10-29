@@ -20,11 +20,15 @@ import { productExtension } from "../tui/extension";
 import { startDemo } from "./demo";
 import { closeSessionRuntime, openSessionRuntime, sessionStateDirectory } from "./session-state";
 import { ProductSessions, type ResumeUI } from "./sessions";
-import { logger } from "@oh-my-pi/pi-utils";
+import { logger, prompt } from "@oh-my-pi/pi-utils";
 import { ModelTraces } from "../diagnostics/model-trace";
 import { resolvePreset, samePreset } from "../presets/presets";
-import { PRODUCT_TOOL_NAMES, TOOL_ACCESS_NAME } from "./tool-catalog";
+import { PRODUCT_TOOL_NAMES, CONTROL_TOOL_NAMES } from "./tool-catalog";
 import type { ToolAccessApprover } from "./temporary-tools";
+import { TemporaryAccess, type AccessApprover } from "./temporary-access";
+import { TemporarySkills } from "../skills/temporary";
+import { TemporaryMcp } from "../mcp/temporary";
+import runtimeSystemTemplate from "../prompts/runtime-system.md" with { type: "text" };
 import { readSessionSnapshot } from "./session-snapshot";
 import { PreparedTranscript } from "../presets/prepared-transcript";
 
@@ -37,6 +41,7 @@ export interface HostOptions {
 	resume?: string;
 	approve?: Approver;
 	approveTool?: ToolAccessApprover;
+	approveResource?: AccessApprover;
 	permissions?: ApprovalMode;
 	preset?: string;
 	plan?: boolean;
@@ -138,6 +143,10 @@ export async function openHost(options: HostOptions): Promise<Host> {
 		let created: CreateAgentSessionResult | undefined;
 		let sessions: ProductSessions | undefined;
 		try {
+			state.access = new TemporaryAccess(policy);
+			state.skillAccess = new TemporarySkills(state, base, state.access);
+			await state.skillAccess.initialize();
+			state.mcpAccess = new TemporaryMcp(state, base, state.access);
 			const settings = await Settings.init({
 				cwd: agentDir,
 				agentDir,
@@ -183,11 +192,11 @@ export async function openHost(options: HostOptions): Promise<Host> {
 			const tools = light ? [] : productTools(state, toolContext);
 			if (
 				!light &&
-				(tools.length !== PRODUCT_TOOL_NAMES.length ||
+				(tools.length !== PRODUCT_TOOL_NAMES.length - 1 + CONTROL_TOOL_NAMES.length ||
 					new Set(tools.map(tool => tool.name)).size !== tools.length ||
 					tools.some(
 						tool =>
-							(tool.name !== TOOL_ACCESS_NAME &&
+							(!(CONTROL_TOOL_NAMES as readonly string[]).includes(tool.name) &&
 								!(PRODUCT_TOOL_NAMES as readonly string[]).includes(tool.name)) ||
 							tool.name === "goal",
 					))
@@ -210,7 +219,13 @@ export async function openHost(options: HostOptions): Promise<Host> {
 				getApiKey: models.getApiKey,
 				sessionManager: manager,
 				cacheWarming: false,
-				systemPrompt: () => state.resources.systemPrompt,
+				systemPrompt: () =>
+					prompt.render(runtimeSystemTemplate, {
+						base: state.resources.systemPrompt,
+						skills: (state.skillAccess?.effectiveSkills() ?? []).filter(
+							skill => !skill.hide && !state.resources.skills.some(base => base.name === skill.name),
+						),
+					}),
 				// Product instructions are rendered in the prompt above. Keep native
 				// context discovery closed instead of retaining a stale second copy.
 				contextFiles: [],
@@ -247,6 +262,7 @@ export async function openHost(options: HostOptions): Promise<Host> {
 							() => created?.session,
 							target => sessions?.permitsNativeSwitch(target) ?? false,
 							options.approveTool,
+							options.approveResource,
 						),
 					},
 				],
@@ -257,13 +273,21 @@ export async function openHost(options: HostOptions): Promise<Host> {
 				...(!light ? ["goal"] : []),
 			]);
 			await state.liveResources.syncTools();
-			session.addDisposer(session.agent.addBeforeModelCallHook(() => state.liveResources!.syncTools()));
+			session.addDisposer(
+				session.agent.addBeforeModelCallHook(async () => {
+					await state.liveResources!.syncTools();
+					await state.liveResources!.syncSkills();
+				}),
+			);
 			sessions = new ProductSessions(state, created.session, async next => {
 				state.toolAccess?.clearJobs();
 				const previousRuntime = activeRuntime;
 				activeRuntime = next;
 				const { diagnostics: _diagnostics, ...fields } = next;
 				Object.assign(state, fields, { turn: "initial" });
+				state.skillAccess?.finishTurn();
+				state.skillAccess?.syncReadRoots();
+				state.mcpAccess?.rebind();
 				models!.rebindReviewer();
 				try {
 					await closeSessionRuntime(previousRuntime);
@@ -288,6 +312,7 @@ export async function openHost(options: HostOptions): Promise<Host> {
 			if (created.session.extensionRunner) created.session.extensionRunner.inputFailurePolicy = "handled";
 			const streamBuffer = created.session.rawSseDebugBuffer;
 			created.session.subscribe(event => {
+				if (event.type === "agent_end") state.skillAccess?.finishTurn();
 				if (
 					event.type === "message_start" &&
 					event.message.role === "custom" &&
@@ -355,6 +380,9 @@ export async function openHost(options: HostOptions): Promise<Host> {
 				dispose() {
 					disposing ??= (async () => {
 						state.toolAccess?.close();
+						state.skillAccess?.close();
+						state.access?.close();
+						await state.mcpAccess?.close();
 						try {
 							await state.liveResources?.close();
 							await state.review?.close();
@@ -376,6 +404,9 @@ export async function openHost(options: HostOptions): Promise<Host> {
 			};
 		} catch (error) {
 			state.toolAccess?.close();
+			state.skillAccess?.close();
+			state.access?.close();
+			await state.mcpAccess?.close();
 			try {
 				await state.review?.close();
 				await created?.session.dispose();

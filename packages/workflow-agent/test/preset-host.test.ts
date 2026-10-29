@@ -172,7 +172,15 @@ test(
 				expect(JSON.stringify(request)).not.toMatch(
 					/INSTRUCTION_ONLY_B|SKILL_DESCRIPTION_ONLY_B|SKILL_BODY_ONLY_B/,
 				);
-				expect(names(request)).toEqual(["mcp_call", "mcp_list", "read", "request_tool", "write"]);
+				expect(names(request)).toEqual([
+					"mcp_call",
+					"mcp_list",
+					"read",
+					"request_mcp",
+					"request_skill",
+					"request_tool",
+					"write",
+				]);
 			}
 			expect(f.requestHeaders.every(header => header.authorization === "Bearer fake-local-key")).toBe(true);
 			const aCount = f.requests.length;
@@ -188,7 +196,15 @@ test(
 				expect(JSON.stringify(request)).not.toMatch(
 					/INSTRUCTION_ONLY_A|SKILL_DESCRIPTION_ONLY_A|SKILL_BODY_ONLY_A|A_HISTORY_ONLY|A_TASK|MCP_RESULT_ONLY_A/,
 				);
-				expect(names(request)).toEqual(["ls", "mcp_call", "mcp_list", "read", "request_tool"]);
+				expect(names(request)).toEqual([
+					"ls",
+					"mcp_call",
+					"mcp_list",
+					"read",
+					"request_mcp",
+					"request_skill",
+					"request_tool",
+				]);
 			}
 			expect(JSON.stringify(f.requests.slice(aCount))).toContain("SKILL_BODY_ONLY_B");
 			expect(f.requestHeaders.slice(aCount).every(header => header.authorization === "Bearer fake-second-key")).toBe(

@@ -5,12 +5,13 @@ import type {
 	ExtensionContext,
 	ToolDefinition,
 } from "@oh-my-pi/pi-coding-agent/extensibility/extensions/types";
-import { untilAborted } from "@oh-my-pi/pi-utils";
+import { digest } from "../storage";
 import { resourceDisabled } from "./resources";
 import type { RunState } from "./state";
+import { TemporaryAccess, type AccessDecision } from "./temporary-access";
 import { PRODUCT_TOOL_NAMES } from "./tool-catalog";
 
-export type ToolAccessDecision = "once" | "run" | "deny";
+export type ToolAccessDecision = AccessDecision;
 
 export interface ToolAccessRequest {
 	tool: string;
@@ -27,17 +28,18 @@ const jobTools = new Set(["job_output", "job_stop"]);
 export class TemporaryTools {
 	#state: RunState;
 	#tools = new Map<string, ToolDefinition>();
-	#grants = new Set<string>();
+	#access: TemporaryAccess;
+	#ownsAccess: boolean;
 	#jobs = new Set<string>();
 	#jobRevision = 0;
 	#revision = 0;
 	#closed = false;
 	#invalidated = new AbortController();
-	#approver: ToolAccessApprover = async () => "deny";
-	#approvalTail: Promise<void> = Promise.resolve();
 
-	constructor(state: RunState, tools: readonly ToolDefinition[]) {
+	constructor(state: RunState, tools: readonly ToolDefinition[], shared?: TemporaryAccess) {
 		this.#state = state;
+		this.#access = shared ?? new TemporaryAccess(state.policy);
+		this.#ownsAccess = shared === undefined;
 		const productNames = new Set<string>(PRODUCT_TOOL_NAMES);
 		for (const tool of tools)
 			if (productNames.has(tool.name) && tool.name !== "goal" && tool.name !== "request_tool")
@@ -45,8 +47,11 @@ export class TemporaryTools {
 	}
 
 	setApprover(approver: ToolAccessApprover): void {
-		this.#invalidate();
-		this.#approver = approver;
+		this.#access.setApprover(request => {
+			const args = request.details.arguments;
+			if (args === null || typeof args !== "object" || Array.isArray(args)) return Promise.resolve("deny");
+			return approver({ tool: request.key, reason: request.reason, arguments: args as Record<string, unknown> });
+		}, "tool");
 	}
 
 	list(): {
@@ -64,12 +69,12 @@ export class TemporaryTools {
 				name: tool.name,
 				label: tool.label,
 				enabled: !resourceDisabled(this.#state.config, `tool:${tool.name}`),
-				temporary: this.#grants.has(tool.name),
+				temporary: this.#hasGrant(tool.name),
 				scoped:
 					jobTools.has(tool.name) &&
 					this.#jobs.size > 0 &&
 					resourceDisabled(this.#state.config, `tool:${tool.name}`) &&
-					!this.#grants.has(tool.name),
+					!this.#hasGrant(tool.name),
 				description: tool.description,
 				parameters: tool.parameters,
 			}));
@@ -77,7 +82,7 @@ export class TemporaryTools {
 
 	allows(name: string, input?: unknown): boolean {
 		if (!this.#available(name)) return false;
-		if (!resourceDisabled(this.#state.config, `tool:${name}`) || this.#grants.has(name)) return true;
+		if (!resourceDisabled(this.#state.config, `tool:${name}`) || this.#hasGrant(name)) return true;
 		return (
 			jobTools.has(name) &&
 			input !== null &&
@@ -93,14 +98,12 @@ export class TemporaryTools {
 	}
 
 	grant(name: string): void {
-		this.#tool(name);
-		this.#grants.add(name);
+		const tool = this.#tool(name);
+		this.#access.grant("tool", name, this.#fingerprint(tool));
 	}
 
 	revoke(name?: string): void {
-		this.#invalidate();
-		if (name === undefined) this.#grants.clear();
-		else this.#grants.delete(name);
+		this.#access.revoke("tool", name);
 	}
 
 	clearJobs(): void {
@@ -129,6 +132,7 @@ export class TemporaryTools {
 		this.#closed = true;
 		this.revoke();
 		this.clearJobs();
+		if (this.#ownsAccess) this.#access.close();
 	}
 
 	async execute(
@@ -158,36 +162,43 @@ export class TemporaryTools {
 				}),
 			),
 		};
-		const operationSignal = AbortSignal.any([this.#invalidated.signal, ...(signal ? [signal] : [])]);
+		const fingerprint = this.#fingerprint(tool);
+		const operationSignal = AbortSignal.any([
+			this.#invalidated.signal,
+			this.#access.signal,
+			...(signal ? [signal] : []),
+		]);
 		const revision = this.#revision;
+		const accessRevision = this.#access.revision;
 		const policyRevision = this.#state.policy.revision;
 		const jobRevision = this.#jobRevision;
 		const sessionId = this.#state.sessionId;
 		const assertCurrent = () => {
 			operationSignal.throwIfAborted();
 			this.#tool(tool.name);
-			if (revision !== this.#revision) throw new Error("工具授权已变更，请重新申请");
+			if (
+				revision !== this.#revision ||
+				accessRevision !== this.#access.revision ||
+				fingerprint !== this.#fingerprint(tool)
+			)
+				throw new Error("工具授权已变更，请重新申请");
 			this.#state.policy.assertCurrent(policyRevision);
 			this.#checkMcpScope(request);
 		};
 		assertCurrent();
 		if (!this.allows(tool.name, request.arguments)) {
-			// Keep the real callback in the queue even when its caller is cancelled.
-			// A UI that has not settled must not overlap the next human prompt.
-			const approval = this.#approvalTail.then(async (): Promise<ToolAccessDecision | "enabled"> => {
-				assertCurrent();
-				if (this.allows(tool.name, request.arguments)) return "enabled";
-				const approved = await this.#approver(structuredClone(request));
-				assertCurrent();
-				if (approved !== "once" && approved !== "run") throw new Error("工具申请被拒绝；未获得临时使用权限");
-				if (approved === "run") this.#grants.add(tool.name);
-				return approved;
-			});
-			this.#approvalTail = approval.then(
-				() => undefined,
-				() => undefined,
+			const approved = await this.#access.request(
+				{
+					kind: "tool",
+					key: tool.name,
+					fingerprint,
+					label: tool.label,
+					reason: request.reason,
+					details: { arguments: request.arguments },
+				},
+				operationSignal,
 			);
-			await untilAborted(operationSignal, approval);
+			if (approved === "deny") throw new Error("工具申请被拒绝；未获得临时使用权限");
 		}
 		assertCurrent();
 		const output = await tool.execute(id, request.arguments, operationSignal, update, ctx);
@@ -200,7 +211,25 @@ export class TemporaryTools {
 			!this.#closed &&
 			!this.#state.light &&
 			this.#tools.has(name) &&
-			(!mcpTools.has(name) || Object.keys(this.#state.config.mcpServers).length > 0)
+			(!mcpTools.has(name) ||
+				Object.keys(this.#state.config.mcpServers).length > 0 ||
+				(this.#state.mcpAccess?.list().length ?? 0) > 0)
+		);
+	}
+
+	#hasGrant(name: string): boolean {
+		const tool = this.#tools.get(name);
+		return tool !== undefined && this.#access.has("tool", name, this.#fingerprint(tool));
+	}
+
+	#fingerprint(tool: ToolDefinition): string {
+		return digest(
+			JSON.stringify({
+				name: tool.name,
+				label: tool.label,
+				description: tool.description,
+				parameters: tool.parameters,
+			}),
 		);
 	}
 
@@ -213,7 +242,11 @@ export class TemporaryTools {
 	#checkMcpScope(request: ToolAccessRequest): void {
 		if (request.tool !== "mcp_call" && request.tool !== "mcp_list") return;
 		const server = request.arguments.server;
-		if (server !== undefined && (typeof server !== "string" || !Object.hasOwn(this.#state.config.mcpServers, server)))
+		if (
+			server !== undefined &&
+			(typeof server !== "string" ||
+				(!Object.hasOwn(this.#state.config.mcpServers, server) && !this.#state.mcpAccess?.available(server)))
+		)
 			throw new Error("MCP 服务不在当前预设选择的范围内");
 	}
 

@@ -24,6 +24,8 @@ import { sanitizeText } from "@oh-my-pi/pi-utils";
 import { saveSessionSnapshot } from "../runtime/session-snapshot";
 import type { ToolAccessApprover } from "../runtime/temporary-tools";
 import { chooseToolAccess } from "./tool-access";
+import type { AccessApprover } from "../runtime/temporary-access";
+import { chooseResourceAccess, showResourceDocument } from "./resource-access";
 
 export function productExtension(
 	state: RunState,
@@ -32,45 +34,67 @@ export function productExtension(
 	getSession: () => AgentSession | undefined,
 	isSessionSwitchAllowed: (target: string | undefined) => boolean = () => false,
 	approveTool?: ToolAccessApprover,
+	approveResource?: AccessApprover,
 ): ExtensionFactory {
 	return api => {
 		const show = showProductData;
 		let approvalContext: ExtensionContext;
 		api.on("session_start", (_event, ctx) => {
 			approvalContext = ctx;
-			state.toolAccess?.setApprover(
-				approveTool ??
+			state.access?.setApprover(
+				approveResource ??
 					(async request => {
 						const current = approvalContext;
 						if (!current.hasUI) return "deny";
-						return chooseToolAccess(
+						return chooseResourceAccess(
 							request,
-							(title, choices) => current.ui.select(replaceTabs(sanitizeText(title)), choices),
-							async body => {
-								await current.ui.custom<void>(
-									(tui, _theme, _keys, done) =>
-										new InkDocument(
-											"临时工具申请详情 · 返回后仍需批准",
-											body,
-											() => Math.max(5, tui.terminal.rows - 2),
-											() => done(),
-										),
-									{
-										overlay: true,
-										overlayOptions: {
-											fullscreen: true,
-											width: "100%",
-											maxHeight: "100%",
-											margin: 1,
-											mouseTracking: false,
-										},
-										signal: current.signal,
-									},
-								);
-							},
+							(title, choices) =>
+								current.ui.select(replaceTabs(sanitizeText(title)), choices, { signal: current.signal }),
+							body =>
+								showResourceDocument(
+									current,
+									request.kind === "tool"
+										? "临时工具申请详情 · 返回后仍需批准"
+										: "资源申请详情 · 返回后仍需批准",
+									body,
+								),
 						);
 					}),
 			);
+			if (approveTool || !state.access)
+				state.toolAccess?.setApprover(
+					approveTool ??
+						(async request => {
+							const current = approvalContext;
+							if (!current.hasUI) return "deny";
+							return chooseToolAccess(
+								request,
+								(title, choices) => current.ui.select(replaceTabs(sanitizeText(title)), choices),
+								async body => {
+									await current.ui.custom<void>(
+										(tui, _theme, _keys, done) =>
+											new InkDocument(
+												"临时工具申请详情 · 返回后仍需批准",
+												body,
+												() => Math.max(5, tui.terminal.rows - 2),
+												() => done(),
+											),
+										{
+											overlay: true,
+											overlayOptions: {
+												fullscreen: true,
+												width: "100%",
+												maxHeight: "100%",
+												margin: 1,
+												mouseTracking: false,
+											},
+											signal: current.signal,
+										},
+									);
+								},
+							);
+						}),
+				);
 			state.policy.setApprover(
 				approve ??
 					(async request => {
@@ -147,7 +171,7 @@ export function productExtension(
 			}
 			if (
 				event.source === "extension" &&
-				["model", "review", "resources", "agent", "trace", "preset", "tools"].includes(
+				["model", "review", "resources", "agent", "trace", "preset", "tools", "skills", "mcp"].includes(
 					parseProductCommand(event.text)?.name ?? "",
 				)
 			) {
@@ -180,8 +204,27 @@ export function productExtension(
 			const selectedSkill = skill && state.resources.skills.some(item => item.name === skill.name);
 			if (skill && (selectedSkill || !/^\d+(?:\.\d+)?$/.test(skill.name))) {
 				if (!selectedSkill) {
-					ctx.ui.notify(`技能 ${skill.name} 未找到或未启用；输入 $ 查看可用技能，或用 /resources 管理。`, "error");
-					return { handled: true };
+					if (
+						event.source === "extension" ||
+						!state.skillAccess?.list().some(item => item.name === skill.name && !item.error)
+					) {
+						ctx.ui.notify(
+							`技能 ${skill.name} 未找到或未启用；用户可用 /skills 管理，模型请用 request_skill 申请。`,
+							"error",
+						);
+						return { handled: true };
+					}
+					state.policy.setUserTask(event.text);
+					try {
+						await state.skillAccess.prepare(skill.name, skill.args, "用户手动调用已登记技能", ctx.signal);
+						await getSession()?.setSkills(state.skillAccess.effectiveSkills());
+					} catch (error) {
+						ctx.ui.notify(
+							replaceTabs(sanitizeText(error instanceof Error ? error.message : String(error))),
+							"error",
+						);
+						return { handled: true };
+					}
 				}
 				if (event.source !== "extension") state.policy.setUserTask(event.text);
 				// Let the native skill dispatcher retain file loading, images and queued delivery.
@@ -238,6 +281,9 @@ export function productExtension(
 		api.on("session_before_tree", cancelTransition);
 		api.on("session_shutdown", async () => {
 			state.toolAccess?.close();
+			state.skillAccess?.close();
+			state.access?.close();
+			await state.mcpAccess?.close();
 			const session = getSession();
 			if (session) await saveSessionSnapshot(state, session);
 			await state.liveResources?.close();
@@ -271,8 +317,10 @@ export function productExtension(
 				"任务进度",
 				"配置位置与迁移范围",
 				"临时工具授权",
+				"临时技能授权",
 			]);
-			if (choice === "临时工具授权") await handleProductCommand("/tools", state, ctx, api, getSession);
+			if (choice === "临时技能授权") await handleProductCommand("/skills", state, ctx, api, getSession);
+			else if (choice === "临时工具授权") await handleProductCommand("/tools", state, ctx, api, getSession);
 			else if (choice === "实际资源与工具")
 				await show(ctx, "当前生效内容", {
 					light: state.light,

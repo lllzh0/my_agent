@@ -20,6 +20,7 @@ import { resourceDisabled } from "../runtime/resources";
 import { traceFromCommand } from "./trace";
 import { presetFromCommand } from "./presets";
 import { toolsFromCommand } from "./tool-access";
+import { skillsFromCommand, temporaryMcpMenu } from "./resource-access";
 
 const commands: SlashCommand[] = [
 	{ name: "help", description: "显示当前产品支持的命令" },
@@ -76,7 +77,13 @@ const commands: SlashCommand[] = [
 		argumentHint: "[目标|set <目标>|show|pause|resume|drop|budget <N|off>]",
 		allowArgs: true,
 	},
-	{ name: "mcp", description: "管理产品受控 MCP 连接" },
+	{
+		name: "skills",
+		description: "查看已登记技能，临时启用或撤销",
+		argumentHint: "[list|allow <名称>|revoke <名称>|clear]",
+		allowArgs: true,
+	},
+	{ name: "mcp", description: "管理 MCP 连接与指定工具的临时授权", argumentHint: "[temporary]", allowArgs: true },
 	{
 		name: "permissions",
 		description: "切换手动、自动或完整授权",
@@ -361,6 +368,9 @@ export async function handleProductCommand(
 			case "tools":
 				await toolsFromCommand(state, ctx, args, ensureIdle);
 				break;
+			case "skills":
+				await skillsFromCommand(state, ctx, args, ensureIdle);
+				break;
 			case "jobs": {
 				const parts = args.split(/\s+/);
 				if (!args) await showProductData(ctx, "后台任务", state.jobs.list());
@@ -381,7 +391,11 @@ export async function handleProductCommand(
 				await showProductData(ctx, "任务进度", state.workflow.tasks);
 				break;
 			case "mcp":
-				await mcpMenu(state, ctx.ui, ctx.signal);
+				if (args && args !== "temporary") return usage();
+				if (args === "temporary") {
+					if (!ctx.hasUI || !state.mcpAccess) throw new Error("MCP 临时授权管理需要人工交互终端。");
+					await temporaryMcpMenu(state.mcpAccess, ctx.ui, ctx.signal, ensureIdle);
+				} else await mcpMenu(state, ctx.ui, ctx.signal);
 				break;
 			case "permissions":
 				await selectPermissions(state, ctx, args, ensureIdle);

@@ -13,6 +13,7 @@ import { initTheme } from "@oh-my-pi/pi-tui/theme";
 import type { TUI } from "@oh-my-pi/pi-tui";
 import { resourceScenario } from "./resource-scenarios";
 import { traceScenario } from "./trace-scenarios";
+import type { AccessRequest } from "../src/runtime/temporary-access";
 
 const options = JSON.parse(process.argv[2]) as {
 	home: string;
@@ -23,6 +24,8 @@ const options = JSON.parse(process.argv[2]) as {
 	light?: boolean;
 	approve?: boolean | "connect";
 	approveTool?: "once" | "run";
+	approveResource?: "once" | "run";
+	denyResourceKey?: string;
 	plan?: boolean;
 	planOnApproval?: "connect" | "call";
 	resume?: string;
@@ -64,9 +67,16 @@ try {
 	let switchToPlan = () => {};
 	const approvalStarted = Promise.withResolvers<void>();
 	const pendingApproval = Promise.withResolvers<"deny">();
+	const resourceApprovals: AccessRequest[] = [];
 	const host = await openHost({
 		...options,
 		approveTool: options.approveTool ? async () => options.approveTool! : undefined,
+		approveResource: options.approveResource
+			? async request => {
+					resourceApprovals.push(request);
+					return request.key === options.denyResourceKey ? "deny" : options.approveResource!;
+				}
+			: undefined,
 		approve: options.approve
 			? async request => {
 					if (options.planOnApproval && request.tool.startsWith(`mcp-${options.planOnApproval}:`)) switchToPlan();
@@ -604,6 +614,11 @@ try {
 				changes: closedChanges ?? host.state.journal.list(),
 				jobs: host.state.jobs.list(),
 				resources: host.state.resources.entries,
+				resourceApprovals,
+				temporaryResources: {
+					skills: host.state.skillAccess?.list() ?? [],
+					mcp: host.state.mcpAccess?.list() ?? [],
+				},
 				shellPath: cfgShellPath.get(host.session.settings) ?? null,
 				modelName: host.session.model?.name,
 				mcp: host.state.mcp.status(),

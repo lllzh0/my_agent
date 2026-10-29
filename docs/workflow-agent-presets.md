@@ -104,6 +104,18 @@ bun run agent preset default
 
 临时 bash 创建的后台任务保留仅限关联任务 ID 的输出和停止能力；撤销 bash 后仍可收尾，不能读取其它任务，停止结果只返回目标任务。`/resources off tool:名称` 在 legacy 中也会撤销该工具的运行期授权。使用和验收范围见 [临时工具授权验证](verification/temporary-tools-2026-10-29.md)。
 
+## 临时使用 skill 和 MCP
+
+技能候选只来自共享配置和当前预设显式登记的技能路径，包括已经导入的技能；不自动扫描其它目录或安装新技能。输入 `$brainstorming 任务说明`，若该技能已登记但当前预设没有启用，会先询问“仅加载这次”“本次Agent运行有效”或“拒绝”。单次加载使用批准时的技能正文快照，当前轮结束后移出可用清单；运行期授权会出现在 `$` 补全中。技能仍使用 `$名称`，斜杠清单不显示技能。
+
+`/skills` 可以查看、临时启用和撤销。也可输入 `/skills list`、`/skills allow brainstorming`、`/skills revoke brainstorming`、`/skills clear`。人工启用需确认，作用于当前 Agent 运行。加载技能只增加该技能包的读取权限，不能借此执行已关闭的工具、写文件或联网；撤销立即收回增加的读取范围。已经载入聊天的正文会留在聊天记录里，撤销不能删除模型已看到的内容。
+
+MCP 候选只来自共享配置中有效且未设 `enabled: false` 的服务。使用 `/mcp temporary`，或 `/mcp` → 临时工具授权，先检查已有服务的工具目录，再选择一个工具临时启用。不会创建新服务、安装程序或修改凭据。授权按“服务 + 工具”记录，批准查询工具不会顺带批准同一服务的修改工具。
+
+模型可通过 `request_skill` 申请加载具体技能，通过 `request_mcp` 列出候选、发现目录或提交具体调用。MCP 的连接发现、指定工具临时权限和原来的业务操作审批分别处理；如果预设还关闭了 `mcp_list` / `mcp_call`，仍需独立批准这些产品工具。MCP 单次调用结束或取消后关闭临时连接；运行期授权可以复用连接，撤销时断开临时连接，基线连接不受影响。服务配置或工具参数结构变化后需重新申请，结果不明的调用不会自动重试。
+
+三类临时授权共用同一人工审批队列，只保留在当前 Host（本次运行的宿主进程）内。同进程 `/new`、`/resume` 保留运行期授权；退出、重启、冷恢复和预设交接清空，预设文件和配置不修改。轻量模式没有这些申请入口；非交互运行默认拒绝，SDK 可显式提供 `approveResource`，旧 `approveTool` 接口继续可用。验收范围见 [临时技能与 MCP 验证](verification/temporary-resources-2026-10-29.md)。
+
 交接、取消、失败回退和真实 Go / DeepSeek max A/B/A 记录见 [批次 3 验证](verification/batch3-terminal-handoff-2026-10-29.md)。Mac 已补实际终端管理、同窗口恢复、准备取消和目标引用错误保护；完整 Windows 回归及其原生命令隔离仍有缺口。其余故障阶段与长期行为按各平台验收记录保留边界；尚未实现可移植预设包或 GUI。
 
 macOS 的实际请求隔离、A→B→A 冷恢复与终端 `$` 技能调用证据见 [Mac 历史验收](verification/mac-preset-2026-10-28.md)。Windows 新增真实 OpenCode Go / DeepSeek V4.1 Flash max 开源源码任务、默认绑定和 A/B/A 冷恢复，见 [10-29 真实验收](verification/preset-real-agent-2026-10-29.md)；该 Windows 冷恢复记录不包含 Mac、原生命令隔离或运行中交接的通过结论；后续交接与 Mac 验收以本页上文链接为准。

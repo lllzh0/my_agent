@@ -1,5 +1,6 @@
 /** Product capabilities only. Keep native/extension discovery outside this allowlist. */
 export const TOOL_ACCESS_NAME = "request_tool";
+export const CONTROL_TOOL_NAMES = [TOOL_ACCESS_NAME, "request_skill", "request_mcp"] as const;
 
 /** Selectable preset tools; the permission request entry point is registered separately. */
 export const PRODUCT_TOOL_NAMES = [

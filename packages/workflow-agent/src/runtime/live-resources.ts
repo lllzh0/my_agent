@@ -2,7 +2,7 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import type { AgentSession } from "@oh-my-pi/pi-coding-agent/session/agent-session";
 import { saveConfig, validateConfig, type Config } from "../config/config";
-import { atomicJson, readJson } from "../storage";
+import { atomicJson, readJson, digest } from "../storage";
 import { filterManagedSkillRoots } from "../policy/policy";
 import { loadResources, resourceDisabled } from "./resources";
 import type { RunState } from "./state";
@@ -23,6 +23,7 @@ export class LiveResources {
 	#pending?: Promise<void>;
 	#closed = false;
 	#blocked = false;
+	#skillsSignature?: string;
 	get busy(): boolean {
 		return this.#pending !== undefined;
 	}
@@ -96,6 +97,26 @@ export class LiveResources {
 		if (current.length !== next.length || current.some(name => !next.includes(name)))
 			await session.setActiveToolsByName(next);
 	}
+	async syncSkills(force = false): Promise<void> {
+		const state = this.#state;
+		state.skillAccess?.syncReadRoots();
+		const skills = state.skillAccess?.effectiveSkills() ?? state.resources.skills;
+		const signature = digest(
+			JSON.stringify(
+				skills.map(({ name, filePath, description, content, hide }) => ({
+					name,
+					filePath,
+					description,
+					content,
+					hide,
+				})),
+			),
+		);
+		if (force || signature !== this.#skillsSignature) {
+			await this.#session.setSkills(skills);
+			this.#skillsSignature = signature;
+		}
+	}
 	setEnabled(id: string, enabled: boolean, signal?: AbortSignal): Promise<void> {
 		if (!this.list().some(item => item.id === id))
 			throw new Error(`资源不存在：${id}；使用 /resources list 查看 ID。`);
@@ -110,6 +131,10 @@ export class LiveResources {
 			if (!enabled && id.startsWith("tool:")) {
 				this.#state.toolAccess?.revoke(id.slice(5));
 				await this.syncTools();
+			}
+			if (!enabled && id.startsWith("skill:")) {
+				this.#state.skillAccess?.revoke(id.slice(6));
+				await this.syncSkills();
 			}
 		});
 	}
@@ -158,7 +183,8 @@ export class LiveResources {
 		state.config = next;
 		state.resources = resources;
 		try {
-			await session.setSkills(resources.skills);
+			await state.skillAccess?.initialize();
+			await this.syncSkills(true);
 			await this.syncTools();
 			signal?.throwIfAborted();
 			if (this.#closed) throw new Error("会话正在关闭，资源切换已取消。");
@@ -189,6 +215,7 @@ export class LiveResources {
 				),
 			);
 			state.policy.clearGrants();
+			state.skillAccess?.syncReadRoots();
 		} catch (error) {
 			state.config = previousConfig;
 			state.resources = previousResources;

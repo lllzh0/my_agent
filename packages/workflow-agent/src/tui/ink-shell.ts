@@ -38,7 +38,7 @@ export class InkShell {
 			permission: `${state.policy.mode === "plan" ? "计划 · " : ""}${permissionLabel(state.policy.approvalMode)}`,
 			trace: state.traces?.enabled === true,
 			sessions: this.#sessions.map(info => info.title || info.firstMessage || info.id.slice(0, 8)),
-			skills: state.resources.skills.map(skill => skill.name),
+			skills: (state.skillAccess?.effectiveSkills() ?? state.resources.skills).map(skill => skill.name),
 			tools: mode.session.getActiveToolNames().length,
 			queued: mode.session.queuedMessageCount,
 		}));
@@ -177,7 +177,7 @@ export class InkShell {
 				case "skills": {
 					const skill = await this.#choose(
 						"技能 · 选择后填入输入框",
-						this.state.resources.skills.map(item => ({
+						(this.state.skillAccess?.effectiveSkills() ?? this.state.resources.skills).map(item => ({
 							value: item.name,
 							label: `$${item.name}`,
 							description: item.description,

@@ -81,6 +81,181 @@ function openTerminal(home: string, cwd: string, args: string[] = []) {
 }
 
 test.skipIf(process.platform === "win32")(
+	"real terminal temporarily loads a preset-excluded dollar skill and revokes it across new conversations",
+	async () => {
+		const f = await fixture();
+		const file = path.join(f.home, "skills/brainstorming/SKILL.md");
+		const presetFile = path.join(f.home, "presets/skill-limited/preset.json");
+		const preset = JSON.stringify({
+			...builtinPreset("bare"),
+			id: "skill-limited",
+			name: "skill-limited",
+			tools: ["read"],
+		});
+		await Bun.write(
+			file,
+			"---\nname: brainstorming\ndescription: TEMP_SKILL_DESCRIPTION\n---\nTEMP_SKILL_NATIVE_BODY\n",
+		);
+		f.config.resources.skills = [file];
+		await Bun.write(presetFile, preset);
+		await Bun.write(path.join(f.home, "config.json"), JSON.stringify(f.config));
+		const ui = openTerminal(f.home, f.cwd, ["--preset", "skill-limited"]);
+		try {
+			await ui.ready();
+			ui.send("$brainstorming ONCE_SKILL_ARGS\r");
+			await ui.wait(
+				() => ui.screen().includes("临时技能申请") && ui.screen().includes("仅加载这次"),
+				"one-time skill approval",
+			);
+			expect(f.requests).toHaveLength(0);
+			ui.send("\r");
+			await ui.wait(() => f.requests.length === 1 && ui.idle(), "native one-time skill loaded");
+			expect(JSON.stringify(f.requests[0]?.messages)).toContain("TEMP_SKILL_NATIVE_BODY");
+			expect(JSON.stringify(f.requests[0]?.messages)).toContain("ONCE_SKILL_ARGS");
+			ui.send("$brainstorming RUN_SKILL_ARGS\r");
+			await ui.wait(
+				() => ui.screen().includes("临时技能申请") && ui.screen().includes("仅加载这次"),
+				"second invocation asks again",
+			);
+			ui.send("\x1b[B\r");
+			await ui.wait(() => f.requests.length === 2 && ui.idle(), "run skill grant");
+			ui.send("/new\r");
+			await ui.wait(
+				() => ui.screen().includes("已开始空白会话") && ui.idle(),
+				"new conversation retains Host grant",
+			);
+			ui.send("$brainstorming AFTER_NEW_SKILL_ARGS\r");
+			await ui.wait(() => f.requests.length === 3 && ui.idle(), "native skill dispatch after new");
+			expect(JSON.stringify(f.requests[2]?.messages)).toContain("AFTER_NEW_SKILL_ARGS");
+			expect(JSON.stringify(f.requests[2]?.messages)).toContain("TEMP_SKILL_NATIVE_BODY");
+			ui.send("/skills revoke brainstorming\r");
+			await ui.wait(
+				() => ui.screen().includes("撤销临时授权") && ui.screen().includes("取消"),
+				"revoke skill confirmation",
+			);
+			ui.send("\r");
+			await ui.wait(() => ui.screen().includes("已撤销") && ui.idle(), "skill revoked");
+			ui.send("$brainstorming DENIED_SKILL_ARGS\r");
+			await ui.wait(
+				() => ui.screen().includes("临时技能申请") && ui.screen().includes("仅加载这次"),
+				"revoked skill asks again",
+			);
+			ui.send("\x1b");
+			await ui.wait(
+				() =>
+					ui.idle() && !ui.screen().includes("查看申请详情（只读）") && ui.screen().includes("未获得临时加载权限"),
+				"denied skill leaves session idle",
+			);
+			expect(f.requests).toHaveLength(3);
+			expect(await Bun.file(presetFile).text()).toBe(preset);
+			await ui.quit();
+		} finally {
+			await ui.close();
+			await f.close();
+		}
+	},
+	60_000,
+);
+
+test.skipIf(process.platform === "win32")(
+	"real terminal MCP resource approvals keep tool, connection and one-shot operation scopes separate",
+	async () => {
+		const f = await fixture();
+		const calls: string[] = [];
+		let closed = 0;
+		const server = Bun.serve({
+			hostname: "127.0.0.1",
+			port: 0,
+			async fetch(request) {
+				if (request.method === "DELETE") {
+					closed++;
+					return new Response(null, { status: 200 });
+				}
+				if (request.method !== "POST") return new Response(null, { status: 405 });
+				const body = (await request.json()) as { id?: string; method: string; params?: { name: string } };
+				if (body.id === undefined) return new Response(null, { status: 202 });
+				let result: unknown = {};
+				if (body.method === "initialize")
+					result = {
+						protocolVersion: "2025-11-25",
+						serverInfo: { name: "resource", version: "1" },
+						capabilities: { tools: {} },
+					};
+				if (body.method === "tools/list")
+					result = {
+						tools: [
+							{
+								name: "lookup",
+								inputSchema: { type: "object", properties: { query: { type: "string" } }, required: ["query"] },
+							},
+						],
+					};
+				if (body.method === "tools/call") {
+					calls.push(body.params!.name);
+					result = { content: [{ type: "text", text: "PTY_MCP_RESOURCE_OK" }] };
+				}
+				return Response.json(
+					{ jsonrpc: "2.0", id: body.id, result },
+					{ headers: { "Mcp-Session-Id": "pty-resource" } },
+				);
+			},
+		});
+		f.config.permissions.allowNetwork = true;
+		f.config.mcpServers = { library: { url: `http://127.0.0.1:${server.port}/mcp` } };
+		await Bun.write(path.join(f.home, "config.json"), JSON.stringify(f.config));
+		const presetFile = path.join(f.home, "presets/mcp-limited/preset.json");
+		const preset = JSON.stringify({
+			...builtinPreset("bare"),
+			id: "mcp-limited",
+			name: "mcp-limited",
+			tools: ["read"],
+		});
+		await Bun.write(presetFile, preset);
+		f.callTool("request_mcp", {
+			server: "library",
+			tool: "lookup",
+			arguments: { query: "once" },
+			reason: "One explicit lookup",
+		});
+		const ui = openTerminal(f.home, f.cwd, ["--preset", "mcp-limited"]);
+		try {
+			await ui.ready();
+			ui.send("MCP_RESOURCE_TASK\r");
+			await ui.wait(() => ui.screen().includes("临时工具申请") && ui.screen().includes("mcp_call"), "MCP tool gate");
+			ui.send("\r");
+			await ui.wait(
+				() => ui.screen().includes("临时 MCP 申请") && ui.screen().includes("connection"),
+				"MCP resource connection gate",
+			);
+			expect(calls).toEqual([]);
+			ui.send("\r");
+			await ui.wait(() => ui.screen().includes("批准 mcp-connect:library"), "original connection approval");
+			ui.send("\r");
+			await ui.wait(
+				() => ui.screen().includes("临时 MCP 申请") && ui.screen().includes("library/lookup"),
+				"scoped MCP tool resource gate",
+			);
+			expect(calls).toEqual([]);
+			ui.send("\r");
+			await ui.wait(() => ui.screen().includes("批准 mcp-call:library/lookup"), "original MCP operation approval");
+			expect(calls).toEqual([]);
+			ui.send("\r");
+			await ui.wait(() => f.requests.length === 2 && ui.idle(), "MCP single operation complete");
+			expect(calls).toEqual(["lookup"]);
+			expect(closed).toBe(1);
+			expect(f.requests.at(-1)?.tools?.some(tool => tool.function.name === "mcp_call")).toBe(false);
+			expect(await Bun.file(presetFile).text()).toBe(preset);
+			await ui.quit();
+		} finally {
+			await ui.close();
+			await f.close();
+			server.stop(true);
+		}
+	},
+	60_000,
+);
+
+test.skipIf(process.platform === "win32")(
 	"real terminal grants a disabled preset tool once or for the run and revokes it without changing the preset",
 	async () => {
 		const f = await fixture();
@@ -556,9 +731,17 @@ macPresetTest(
 			expect(resumed).toContain("MAC_RULE_A_ONLY");
 			expect(resumed).toContain("PRIVATE_A_HISTORY");
 			expect(resumed).not.toMatch(/MAC_RULE_B_ONLY|PRIVATE_B_HISTORY/);
-			expect(f.requests[2]?.tools?.map(tool => tool.function.name).sort()).toEqual(["ls", "read", "request_tool"]);
+			expect(f.requests[2]?.tools?.map(tool => tool.function.name).sort()).toEqual([
+				"ls",
+				"read",
+				"request_mcp",
+				"request_skill",
+				"request_tool",
+			]);
 			expect(f.requests[3]?.tools?.map(tool => tool.function.name).sort()).toEqual([
 				"read",
+				"request_mcp",
+				"request_skill",
 				"request_tool",
 				"write",
 			]);

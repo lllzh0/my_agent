@@ -34,6 +34,8 @@ export interface Skill {
 	filePath: string;
 	baseDir: string;
 	source: string;
+	/** Complete SKILL.md snapshot approved for this invocation, including frontmatter. */
+	content?: string;
 	/**
 	 * When `true`, the skill is loaded and reachable via `skill://<name>` and
 	 * (when enabled) `/skill:<name>`, but is excluded from the rendered system
@@ -669,11 +671,11 @@ export type SkillInvocationKind = "user" | "autoload";
 export type SkillPromptInput = Pick<ParsedSkillInvocation, "args"> & Partial<Pick<ParsedSkillInvocation, "prompt">>;
 
 export async function buildSkillPromptMessage(
-	skill: Pick<Skill, "name" | "filePath" | "baseDir">,
+	skill: Pick<Skill, "name" | "filePath" | "baseDir" | "content">,
 	input: SkillPromptInput,
 	invocation: SkillInvocationKind = "user",
 ): Promise<BuiltSkillPromptMessage> {
-	const content = await Bun.file(skill.filePath).text();
+	const content = skill.content ?? (await Bun.file(skill.filePath).text());
 	// Only the body is used: keep HTML comments (`repair: false`) and leave YAML
 	// diagnostics to the loader, which already parsed this frontmatter.
 	const body = parseFrontmatter(content, { source: skill.filePath, repair: false, level: "off" }).body.trim();

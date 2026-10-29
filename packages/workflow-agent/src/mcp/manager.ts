@@ -10,6 +10,18 @@ import { Research } from "../research/research";
 import { digest, redact, record } from "../storage";
 import { expandMcpValues, parseMcpConfig, type ProductMcpConfig } from "./config";
 
+export interface TemporaryMcpHooks {
+	assertCurrent(): void;
+	beforeConnect(signal: AbortSignal): Promise<void>;
+	beforeCall(
+		tool: MCPToolDefinition,
+		args: Record<string, unknown>,
+		signal: AbortSignal,
+	): Promise<Record<string, unknown>>;
+	keepConnected(tools: readonly MCPToolDefinition[]): boolean;
+	signal(): AbortSignal;
+}
+
 interface Entry {
 	name: string;
 	config?: ProductMcpConfig;
@@ -21,6 +33,7 @@ interface Entry {
 	controller?: AbortController;
 	closing?: Promise<void>;
 	stderr?: string;
+	temporary?: TemporaryMcpHooks;
 }
 
 export class ManagedMcp {
@@ -57,6 +70,20 @@ export class ManagedMcp {
 			}
 		}
 	}
+	/** Only explicitly configured candidates may be registered; baseline entries are never replaced. */
+	registerTemporary(name: string, raw: unknown, hooks: TemporaryMcpHooks): boolean {
+		if (this.#closed || this.light || this.#entries.has(name)) return false;
+		if (!/^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/.test(name) || record(raw, "MCP 服务").enabled === false) return false;
+		const config = parseMcpConfig(structuredClone(raw));
+		this.#entries.set(name, { name, config, temporary: hooks, status: "configured" });
+		return true;
+	}
+	async unregisterTemporary(name: string): Promise<void> {
+		const entry = this.#entries.get(name);
+		if (!entry?.temporary) return;
+		await this.disconnect(name);
+		if (this.#entries.get(name) === entry) this.#entries.delete(name);
+	}
 	#message(error: unknown): string {
 		return this.#sanitize(error instanceof Error ? error.message : String(error));
 	}
@@ -77,6 +104,10 @@ export class ManagedMcp {
 		return bounded && serialized.length > 200_000
 			? { truncated: true, preview: serialized.slice(0, 200_000) }
 			: sanitized;
+	}
+	/** Presentation only: callers must retain original schemas for validation and grant fingerprints. */
+	sanitizeMetadata(value: unknown): unknown {
+		return this.#output(value, false);
 	}
 	status() {
 		return [...this.#entries.values()].map(entry => ({
@@ -103,7 +134,11 @@ export class ManagedMcp {
 	): Promise<T> {
 		const controller = new AbortController();
 		entry.controller = controller;
-		const combined = signal ? AbortSignal.any([signal, controller.signal]) : controller.signal;
+		const combined = AbortSignal.any([
+			controller.signal,
+			...(signal ? [signal] : []),
+			...(entry.temporary ? [entry.temporary.signal()] : []),
+		]);
 		const operation = (async () => {
 			try {
 				combined.throwIfAborted();
@@ -119,6 +154,10 @@ export class ManagedMcp {
 		try {
 			return await operation;
 		} finally {
+			if (entry.temporary && !entry.temporary.keepConnected(entry.tools ?? [])) {
+				await this.#drop(entry);
+				if (entry.status !== "error") entry.status = "disconnected";
+			}
 			entry.operation = undefined;
 			entry.controller = undefined;
 		}
@@ -132,6 +171,10 @@ export class ManagedMcp {
 		signal.throwIfAborted();
 		entry.status = "connecting";
 		entry.stderr = "";
+		if (entry.temporary) await untilAborted(signal, () => entry.temporary!.beforeConnect(signal));
+		signal.throwIfAborted();
+		this.#checkPolicy(config);
+		this.policy.assertCurrent(revision);
 		await untilAborted(signal, () =>
 			this.policy.authorize(
 				{
@@ -184,6 +227,7 @@ export class ManagedMcp {
 		const deadline = AbortSignal.any([signal, AbortSignal.timeout(config.timeout!)]);
 		this.#checkPolicy(config);
 		this.policy.assertCurrent(revision);
+		entry.temporary?.assertCurrent();
 		const connection = await connectToServer(entry.name, prepared, {
 			signal: deadline,
 			stdio: {
@@ -227,11 +271,26 @@ export class ManagedMcp {
 		const entry = this.#entry(name);
 		if (entry.status === "error" || (entry.connection && !entry.connection.transport.connected))
 			throw new Error("上次 MCP 连接或调用失败；请先用 mcp_list 或菜单重新连接，核实结果后再决定是否重试");
+		if (entry.temporary) args = structuredClone(args);
 		if (JSON.stringify(args).length > 100_000) throw new Error("MCP 参数过大，请缩小到 100KB 以内");
 		return this.#run(entry, signal, async signal => {
 			const revision = this.policy.revision;
 			const connection = await this.#connect(entry, signal);
-			if (!entry.tools?.some(item => item.name === tool)) throw new Error("工具不在此 MCP 服务当前公布的列表中");
+			// Temporary grants bind the current advertised schema, including on an already-open connection.
+			if (entry.temporary) {
+				// The SDK caches tools/list on the connection. Temporary grants must
+				// compare against the server's current schema before every execution.
+				connection.tools = undefined;
+				entry.tools = await listTools(connection, {
+					signal: AbortSignal.any([signal, AbortSignal.timeout(entry.config!.timeout!)]),
+				});
+			}
+			const definition = entry.tools?.find(item => item.name === tool);
+			if (!definition) throw new Error("工具不在此 MCP 服务当前公布的列表中");
+			if (entry.temporary)
+				args = await untilAborted(signal, () =>
+					entry.temporary!.beforeCall(structuredClone(definition), args, signal),
+				);
 			await untilAborted(signal, () =>
 				this.policy.authorize(
 					{
@@ -246,6 +305,19 @@ export class ManagedMcp {
 			signal.throwIfAborted();
 			this.#checkPolicy(entry.config!);
 			this.policy.assertCurrent(revision);
+			if (entry.temporary) {
+				connection.tools = undefined;
+				entry.tools = await listTools(connection, {
+					signal: AbortSignal.any([signal, AbortSignal.timeout(entry.config!.timeout!)]),
+				});
+				const current = entry.tools.find(item => item.name === tool);
+				if (!current || digest(JSON.stringify(current)) !== digest(JSON.stringify(definition)))
+					throw new Error("MCP 工具定义在审批期间变化，操作未执行；请重新检查工具目录。");
+				signal.throwIfAborted();
+				this.#checkPolicy(entry.config!);
+				this.policy.assertCurrent(revision);
+			}
+			entry.temporary?.assertCurrent();
 			entry.status = "calling";
 			try {
 				const output = await callTool(connection, tool, args, {

@@ -5,10 +5,11 @@ import { replaceTabs } from "@oh-my-pi/pi-tui";
 import { parseMcpConfig } from "../mcp/config";
 import { saveConfig } from "../config/config";
 import { record, redact } from "../storage";
+import { temporaryMcpMenu } from "./resource-access";
 
 export type McpMenuUI = Pick<ExtensionContext["ui"], "select" | "input" | "confirm" | "editor" | "notify">;
 export async function mcpMenu(
-	state: Pick<RunState, "home" | "config" | "mcp" | "preset">,
+	state: Pick<RunState, "home" | "config" | "mcp" | "preset"> & Partial<Pick<RunState, "mcpAccess" | "sessions">>,
 	ui: McpMenuUI,
 	signal?: AbortSignal,
 ): Promise<void> {
@@ -21,10 +22,13 @@ export async function mcpMenu(
 			"连接并查看工具",
 			"断开连接",
 			...(!state.preset ? ["添加远程 HTTP 服务", "添加本地 stdio 服务", "启用或停用服务（重启生效）"] : []),
+			...(state.mcpAccess ? ["临时工具授权"] : []),
 			"返回",
 		]);
 		signal?.throwIfAborted();
 		if (!choice || choice === "返回") return;
+		if (choice === "临时工具授权" && state.mcpAccess)
+			return temporaryMcpMenu(state.mcpAccess, ui, signal, () => state.sessions?.assertIdle());
 		if (choice === "查看连接状态") {
 			await show("MCP 状态", {
 				current: state.mcp.status(),

@@ -221,6 +221,8 @@ export async function fixture(homeInsideWorkspace = false) {
 				light?: boolean;
 				approve?: boolean | "connect";
 				approveTool?: "once" | "run";
+				approveResource?: "once" | "run";
+				denyResourceKey?: string;
 				plan?: boolean;
 				testKey?: string;
 				testMcpTimeout?: string;

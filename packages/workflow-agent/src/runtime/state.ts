@@ -16,6 +16,9 @@ import type { ModelTraces } from "../diagnostics/model-trace";
 import type { PresetIdentity } from "../presets/presets";
 import type { PresetHandoff } from "../presets/handoff-client";
 import type { TemporaryTools } from "./temporary-tools";
+import type { TemporaryAccess } from "./temporary-access";
+import type { TemporarySkills } from "../skills/temporary";
+import type { TemporaryMcp } from "../mcp/temporary";
 
 export interface RunState {
 	home: string;
@@ -40,6 +43,9 @@ export interface RunState {
 	review?: ProductReview;
 	liveResources?: LiveResources;
 	toolAccess?: TemporaryTools;
+	access?: TemporaryAccess;
+	skillAccess?: TemporarySkills;
+	mcpAccess?: TemporaryMcp;
 	traces?: ModelTraces;
 	handoff?: PresetHandoff;
 	snapshotWritable?: boolean;
